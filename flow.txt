@@ -1,0 +1,51 @@
+rorak/
+│
+├── backend/
+│   │
+│   ├── main.py
+│   │
+│   ├── routes/            ####
+│   │   ├── chat.py
+│   │   ├── documents.py
+│   │   ├── web.py
+│   │   └── health.py
+│   │
+│   ├── services/
+│   │   ├── chat_service.py   ####
+│   │   ├── ingestion.py
+│   │   ├── retrieval.py
+│   │   ├── reranker.py
+│   │   ├── web_search.py   ####
+│   │   └── generator.py
+│   │
+│   ├── rag/                      
+│   │   ├── embeddings.py
+│   │   ├── vector_store.py
+│   │   └── prompts.py
+│   │
+│   ├── models/    ####
+│   │   └── schemas.py   
+│   │
+│   └── core/             ####
+│       ├── config.py
+│       └── logging.py
+│
+├── frontend/       ####
+│   ├── index.html
+│   ├── style.css
+│   └── script.js
+│
+├── documents/
+│   └── sample/
+│
+├── tests/              ####
+│   ├── test_chat.py
+│   ├── test_rag.py
+│   ├── test_retrieval.py
+│   └── test_web.py
+│
+├── .env.example
+├── .gitignore
+├── requirements.txt
+├── README.md
+└── LICENSE

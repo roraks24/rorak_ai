@@ -1,0 +1,50 @@
+from pathlib import Path
+
+from dotenv import load_dotenv
+import os
+
+
+# Project root directory
+BASE_DIR = Path(__file__).resolve().parents[2]
+
+# Load environment variables from the project root .env file
+load_dotenv(BASE_DIR / ".env")
+
+
+# API configuration
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
+# Model configuration
+GROQ_MODEL = os.getenv(
+    "GROQ_MODEL",
+    "openai/gpt-oss-20b"
+)
+
+EMBEDDING_MODEL = os.getenv(
+    "EMBEDDING_MODEL",
+    "sentence-transformers/all-MiniLM-L6-v2"
+)
+
+RERANKER_MODEL = os.getenv(
+    "RERANKER_MODEL",
+    "cross-encoder/ms-marco-MiniLM-L-6-v2"
+)
+
+
+# RAG configuration
+CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "500"))
+CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "50"))
+RETRIEVAL_K = int(os.getenv("RETRIEVAL_K", "10"))
+RERANK_TOP_K = int(os.getenv("RERANK_TOP_K", "3"))
+
+
+# Storage paths
+DOCUMENTS_DIR = BASE_DIR / "documents"
+SAMPLE_DOCUMENTS_DIR = DOCUMENTS_DIR / "sample"
+
+
+# Basic validation
+if not GROQ_API_KEY:
+    raise ValueError(
+        "GROQ_API_KEY is not set. Add it to the project root .env file."
+    )
