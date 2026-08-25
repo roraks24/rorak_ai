@@ -1,18 +1,18 @@
 from pathlib import Path
-
 from dotenv import load_dotenv
 import os
 
 
-# Project root directory
+# Project root
 BASE_DIR = Path(__file__).resolve().parents[2]
 
-# Load environment variables from the project root .env file
+# Load .env
 load_dotenv(BASE_DIR / ".env")
 
 
 # API configuration
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
 
 # Model configuration
 GROQ_MODEL = os.getenv(
@@ -32,19 +32,30 @@ RERANKER_MODEL = os.getenv(
 
 
 # RAG configuration
-CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "500"))
-CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "50"))
-RETRIEVAL_K = int(os.getenv("RETRIEVAL_K", "10"))
-RERANK_TOP_K = int(os.getenv("RERANK_TOP_K", "3"))
+CHUNK_SIZE = int(
+    os.getenv("CHUNK_SIZE", "500")
+)
+
+CHUNK_OVERLAP = int(
+    os.getenv("CHUNK_OVERLAP", "50")
+)
+
+RETRIEVAL_K = int(
+    os.getenv("RETRIEVAL_K", "10")
+)
+
+RERANK_TOP_K = int(
+    os.getenv("RERANK_TOP_K", "3")
+)
 
 
-# Storage paths
+# Storage
 DOCUMENTS_DIR = BASE_DIR / "documents"
-SAMPLE_DOCUMENTS_DIR = DOCUMENTS_DIR / "sample"
 
 
-# Basic validation
+# Validation
 if not GROQ_API_KEY:
     raise ValueError(
-        "GROQ_API_KEY is not set. Add it to the project root .env file."
+        "GROQ_API_KEY is not set. "
+        "Add it to the project root .env file."
     )

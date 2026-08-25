@@ -11,7 +11,7 @@ rorak/
 │   │   └── health.py
 │   │
 │   ├── services/
-│   │   ├── chat_service.py   ####
+│   │   |
 │   │   ├── ingestion.py
 │   │   ├── retrieval.py
 │   │   ├── reranker.py

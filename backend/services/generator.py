@@ -9,9 +9,7 @@ load_dotenv()
 
 client = Groq(api_key=GROQ_API_KEY)
 
-while True:
-
-    query = input("Enter your input:")
+def chat_func(query):
 
     results = retriev_func(query)
 
@@ -44,8 +42,7 @@ while True:
 
     answer = response.choices[0].message.content
 
-    print("\nAnswer:")
-    print(answer)
+    return answer
 
 
 

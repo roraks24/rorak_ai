@@ -1,11 +1,9 @@
-from backend.services.ingestion import ingest_func
 from backend.rag.vector_store import vector_store
 from backend.core.config import RETRIEVAL_K
 
-document = ingest_func()
-
 
 def retriev_func(query):
+
     retriever = vector_store.as_retriever(
         search_type="similarity",
         search_kwargs={
@@ -19,9 +17,11 @@ def retriev_func(query):
 
 
 def context_func(results):
+
     context = []
 
     for i, document in enumerate(results, start=1):
+
         context.append(
             f"""---Chunk {i}---
 

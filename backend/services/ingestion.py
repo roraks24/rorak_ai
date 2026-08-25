@@ -1,24 +1,16 @@
-from glob import glob
-
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from backend.core.config import (
-    DOCUMENTS_DIR,
     CHUNK_SIZE,
     CHUNK_OVERLAP,
 )
 
 
-def ingest_func():
+def ingest_func(file_path):
 
-    documents = []
-
-    files = glob(str(DOCUMENTS_DIR / "*.pdf"))
-
-    for file in files:
-        loader = PyPDFLoader(file)
-        documents.extend(loader.load())
+    loader = PyPDFLoader(str(file_path))
+    documents = loader.load()
 
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=CHUNK_SIZE,

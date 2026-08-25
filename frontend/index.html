@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rorak</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div class="app">
+
+        <!-- Mobile menu toggle -->
+        <button class="menu-toggle" id="menuToggle" aria-label="Toggle menu">
+            <span></span>
+            <span></span>
+            <span></span>
+        </button>
+
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-brand">rorak.ai</div>
+            <nav class="sidebar-nav">
+                <a class="nav-item active" href="#">Chat</a>
+                <div class="nav-item disabled">
+                    Memory
+                    <span class="nav-badge">Coming Soon</span>
+                </div>
+            </nav>
+        </aside>
+
+        <!-- Mobile sidebar overlay -->
+        <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+        <!-- Main content -->
+        <main class="main">
+
+            <!-- Empty state (visible before first message) -->
+            <div class="empty-state" id="emptyState">
+                <h1 class="brand-title">Rorak</h1>
+                <p class="brand-tagline">Your AI knowledge assistant</p>
+                <p class="brand-description">
+                    Upload documents and ask anything.<br>
+                    Rorak will provide accurate and grounded answers.
+                </p>
+            </div>
+
+            <!-- Chat messages (hidden until first message) -->
+            <div class="chat-messages" id="chatMessages"></div>
+
+            <!-- Input area (always visible at bottom) -->
+            <div class="input-area">
+                <div class="notification" id="notification"></div>
+                <div class="upload-indicator" id="uploadIndicator"></div>
+                <div class="input-bar">
+                    <button class="btn-upload" id="uploadBtn" title="Upload PDF">+</button>
+                    <input
+                        type="text"
+                        class="chat-input"
+                        id="chatInput"
+                        placeholder="Ask anything"
+                        autocomplete="off"
+                    >
+                    <button class="btn-send" id="sendBtn" title="Send">&rarr;</button>
+                </div>
+            </div>
+
+            <!-- Hidden file input for PDF upload -->
+            <input type="file" id="fileInput" accept=".pdf" hidden>
+
+        </main>
+
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
