@@ -1,5 +1,5 @@
 /* ========================================
-   Rorak V1 — Frontend Logic
+   Rorak V1 — Frontend Logic (Dark Theme)
    ========================================
    Consumes the existing backend API:
      GET  /health/
@@ -11,8 +11,7 @@
     "use strict";
 
     // ── Configuration ──
-    // Change this if the backend runs on a different host/port.
-    var API_BASE = "https://rorak-api-871304734461.asia-south1.run.app";
+    var API_BASE = "http://localhost:8000";
 
 
     // ── State ──
@@ -32,7 +31,13 @@
     var notification = document.getElementById("notification");
     var menuToggle = document.getElementById("menuToggle");
     var sidebar = document.getElementById("sidebar");
+    var toolbar = document.getElementById("toolbar");
     var sidebarOverlay = document.getElementById("sidebarOverlay");
+
+
+    // ── SVG Templates ──
+    var COPY_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+    var CHECK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
 
 
     // ────────────────────────────────────────
@@ -95,10 +100,8 @@
         var file = e.target.files[0];
         if (!file) return;
 
-        // Reset the input so the same file can be re-selected.
         fileInput.value = "";
 
-        // Client-side validation
         if (!file.name.toLowerCase().endsWith(".pdf")) {
             showNotification("Only PDF files are supported.");
             return;
@@ -123,7 +126,6 @@
                 return res.json();
             })
             .then(function (data) {
-                // Backend returns: { message, filename, "Chunks Created" }
                 uploadedFileName = data.filename;
                 renderUploadChip(data.filename);
                 hideNotification();
@@ -162,7 +164,6 @@
     function handleSend() {
         var question = chatInput.value.trim();
 
-        // Validate
         if (!question) {
             chatInput.classList.add("shake");
             setTimeout(function () {
@@ -174,17 +175,13 @@
         if (isLoading) return;
 
         hideNotification();
-
-        // Add user message to the UI
         addMessage("user", question);
         chatInput.value = "";
 
-        // Show loading
         isLoading = true;
         sendBtn.disabled = true;
         var loadingId = showLoadingDots();
 
-        // Call existing POST /chat/ endpoint
         fetch(API_BASE + "/chat/", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -226,20 +223,112 @@
         var msgEl = document.createElement("div");
         msgEl.className = "message message-" + role;
 
+        // Header (avatar + label)
+        var headerEl = document.createElement("div");
+        headerEl.className = "message-header";
+
+        if (role === "assistant") {
+            var avatarEl = document.createElement("div");
+            avatarEl.className = "message-avatar";
+            avatarEl.textContent = "R";
+            headerEl.appendChild(avatarEl);
+        }
+
         var labelEl = document.createElement("div");
         labelEl.className = "message-label";
-        labelEl.textContent = role === "user" ? "You" : "Rorak";
+        labelEl.textContent = role === "user" ? "YOU" : "RORAK";
+        headerEl.appendChild(labelEl);
 
+        msgEl.appendChild(headerEl);
+
+        // Content
         var contentEl = document.createElement("div");
         contentEl.className = "message-content";
-        // Escape HTML to prevent injection, then preserve newlines.
-        contentEl.innerHTML = escapeHtml(content).replace(/\n/g, "<br>");
-
-        msgEl.appendChild(labelEl);
+        contentEl.innerHTML = formatContent(content);
         msgEl.appendChild(contentEl);
-        chatMessages.appendChild(msgEl);
 
+        // Footer (timestamp + copy) for assistant messages
+        if (role === "assistant") {
+            var footerEl = document.createElement("div");
+            footerEl.className = "message-footer";
+
+            var timeEl = document.createElement("span");
+            timeEl.className = "message-time";
+            timeEl.textContent = getCurrentTime();
+            footerEl.appendChild(timeEl);
+
+            var copyBtn = document.createElement("button");
+            copyBtn.className = "btn-copy";
+            copyBtn.title = "Copy";
+            copyBtn.innerHTML = COPY_ICON;
+            copyBtn.addEventListener("click", function () {
+                copyToClipboard(content, copyBtn);
+            });
+            footerEl.appendChild(copyBtn);
+
+            msgEl.appendChild(footerEl);
+        }
+
+        chatMessages.appendChild(msgEl);
         scrollToBottom();
+    }
+
+    function formatContent(text) {
+        // Escape HTML first
+        var safe = escapeHtml(text);
+        // Render **bold** markers
+        safe = safe.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+        // Preserve newlines
+        safe = safe.replace(/\n/g, "<br>");
+        return safe;
+    }
+
+    function getCurrentTime() {
+        var now = new Date();
+        var hours = now.getHours();
+        var minutes = now.getMinutes();
+        var ampm = hours >= 12 ? "PM" : "AM";
+        hours = hours % 12;
+        hours = hours ? hours : 12;
+        minutes = minutes < 10 ? "0" + minutes : minutes;
+        return hours + ":" + minutes + " " + ampm;
+    }
+
+    function copyToClipboard(text, btn) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(function () {
+                showCopied(btn);
+            }).catch(function () {
+                fallbackCopy(text, btn);
+            });
+        } else {
+            fallbackCopy(text, btn);
+        }
+    }
+
+    function fallbackCopy(text, btn) {
+        var textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        try {
+            document.execCommand("copy");
+            showCopied(btn);
+        } catch (e) {
+            // silently fail
+        }
+        document.body.removeChild(textarea);
+    }
+
+    function showCopied(btn) {
+        btn.innerHTML = CHECK_ICON;
+        btn.classList.add("copied");
+        setTimeout(function () {
+            btn.innerHTML = COPY_ICON;
+            btn.classList.remove("copied");
+        }, 2000);
     }
 
     function showLoadingDots() {
@@ -249,15 +338,24 @@
         msgEl.className = "message message-assistant";
         msgEl.id = id;
 
+        var headerEl = document.createElement("div");
+        headerEl.className = "message-header";
+
+        var avatarEl = document.createElement("div");
+        avatarEl.className = "message-avatar";
+        avatarEl.textContent = "R";
+        headerEl.appendChild(avatarEl);
+
         var labelEl = document.createElement("div");
         labelEl.className = "message-label";
-        labelEl.textContent = "Rorak";
+        labelEl.textContent = "RORAK";
+        headerEl.appendChild(labelEl);
 
         var dotsEl = document.createElement("div");
         dotsEl.className = "loading-dots";
         dotsEl.innerHTML = "<span></span><span></span><span></span>";
 
-        msgEl.appendChild(labelEl);
+        msgEl.appendChild(headerEl);
         msgEl.appendChild(dotsEl);
         chatMessages.appendChild(msgEl);
 
@@ -297,12 +395,19 @@
     // ────────────────────────────────────────
 
     function toggleSidebar() {
-        sidebar.classList.toggle("open");
-        sidebarOverlay.classList.toggle("active");
+        var isOpen = sidebar.classList.contains("open");
+        if (isOpen) {
+            closeSidebar();
+        } else {
+            sidebar.classList.add("open");
+            toolbar.classList.add("open");
+            sidebarOverlay.classList.add("active");
+        }
     }
 
     function closeSidebar() {
         sidebar.classList.remove("open");
+        toolbar.classList.remove("open");
         sidebarOverlay.classList.remove("active");
     }
 

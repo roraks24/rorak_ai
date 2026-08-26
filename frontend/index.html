@@ -3,73 +3,142 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rorak</title>
+    <title>Rorak | Your AI Assistant</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg viewBox='0 0 32 32' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='32' height='32' rx='6' fill='%23111'/%3E%3Cpath d='M8 5h11c4.5 0 8 3.2 8 7.5 0 3.5-2.2 6.2-5.5 7.2L28 28h-5.5l-6-8H13v8H8V5zm5 4v7.5h5.5c2.5 0 4.5-1.7 4.5-3.8s-2-3.7-4.5-3.7H13z' fill='white'/%3E%3C/svg%3E">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
     <div class="app">
 
-        <!-- Mobile menu toggle -->
-        <button class="menu-toggle" id="menuToggle" aria-label="Toggle menu">
-            <span></span>
-            <span></span>
-            <span></span>
-        </button>
+        <!-- Top disclaimer banner -->
+        <div class="disclaimer-bar">
+            Rorak.ai can make mistakes. Check important info.
+        </div>
 
-        <!-- Sidebar -->
-        <aside class="sidebar" id="sidebar">
-            <div class="sidebar-brand">rorak.ai</div>
-            <nav class="sidebar-nav">
-                <a class="nav-item active" href="#">Chat</a>
-                <div class="nav-item disabled">
-                    Memory
-                    <span class="nav-badge">Coming Soon</span>
-                </div>
-            </nav>
-        </aside>
+        <div class="app-body">
 
-        <!-- Mobile sidebar overlay -->
-        <div class="sidebar-overlay" id="sidebarOverlay"></div>
+            <!-- Mobile menu toggle -->
+            <button class="menu-toggle" id="menuToggle" aria-label="Toggle menu">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
 
-        <!-- Main content -->
-        <main class="main">
-
-            <!-- Empty state (visible before first message) -->
-            <div class="empty-state" id="emptyState">
-                <h1 class="brand-title">Hi Gorgeous!</h1>
-                <p class="brand-tagline">Your AI knowledge assistant</p>
-                <p class="brand-description">
-                    Upload documents and ask anything.<br>
-                    Rorak will provide accurate and grounded answers.
-                </p>
-            </div>
-
-            <!-- Chat messages (hidden until first message) -->
-            <div class="chat-messages" id="chatMessages"></div>
-
-            <!-- Input area (always visible at bottom) -->
-            <div class="input-area">
-                <div class="notification" id="notification"></div>
-                <div class="upload-indicator" id="uploadIndicator"></div>
-                <div class="input-bar">
-                    <button class="btn-upload" id="uploadBtn" title="Upload PDF">+</button>
-                    <input
-                        type="text"
-                        class="chat-input"
-                        id="chatInput"
-                        placeholder="Ask anything"
-                        autocomplete="off"
-                    >
-                    <button class="btn-send" id="sendBtn" title="Send">&rarr;</button>
+            <!-- Icon toolbar (narrow left strip) -->
+            <div class="toolbar" id="toolbar">
+                <div class="toolbar-top">
+                    <button class="toolbar-icon active" title="Chat">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                    </button>
+                    <button class="toolbar-icon" title="Documents">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                    </button>
+                    <button class="toolbar-icon" title="Search">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    </button>
+                    <button class="toolbar-icon" title="Links">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                    </button>
+                    <button class="toolbar-icon" title="History">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    </button>
+                    <button class="toolbar-icon" title="Settings">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                    </button>
                 </div>
             </div>
 
-            <!-- Hidden file input for PDF upload -->
-            <input type="file" id="fileInput" accept=".pdf" hidden>
+            <!-- Sidebar panel -->
+            <aside class="sidebar" id="sidebar">
+                <div class="sidebar-top">
+                    <!-- Brand -->
+                    <div class="sidebar-brand">
+                        <svg class="brand-logo" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M8 5h11c4.5 0 8 3.2 8 7.5 0 3.5-2.2 6.2-5.5 7.2L28 28h-5.5l-6-8H13v8H8V5zm5 4v7.5h5.5c2.5 0 4.5-1.7 4.5-3.8s-2-3.7-4.5-3.7H13z" fill="currentColor"/>
+                        </svg>
+                        <span class="brand-text">rorak.ai</span>
+                    </div>
 
-        </main>
+                    <!-- Navigation -->
+                    <nav class="sidebar-nav">
+                        <a class="nav-item active" href="#">
+                            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                            Chat
+                        </a>
+                        <div class="nav-item disabled">
+                            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22 6 12 13 2 6"/></svg>
+                            Memory
+                            <span class="nav-badge">Coming Soon</span>
+                        </div>
+                    </nav>
+                </div>
 
+                <div class="sidebar-bottom">
+                    <div class="sidebar-tagline">
+                        <svg class="tagline-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z"/></svg>
+                        <span>Rorak remembers, understands, and helps you achieve more.</span>
+                    </div>
+                    <div class="sidebar-footer">
+                        <button class="footer-icon" title="Appearance">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                        </button>
+                        <div class="user-avatar">R</div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Mobile sidebar overlay -->
+            <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+            <!-- Main content area -->
+            <main class="main">
+
+                <!-- Empty state (visible before first message) -->
+                <div class="empty-state" id="emptyState">
+                    <div class="empty-logo">
+                        <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M8 5h11c4.5 0 8 3.2 8 7.5 0 3.5-2.2 6.2-5.5 7.2L28 28h-5.5l-6-8H13v8H8V5zm5 4v7.5h5.5c2.5 0 4.5-1.7 4.5-3.8s-2-3.7-4.5-3.7H13z" fill="currentColor"/>
+                        </svg>
+                    </div>
+                    <h1 class="empty-title">Rorak</h1>
+                    <p class="empty-tagline">Your AI knowledge assistant</p>
+                    <p class="empty-description">
+                        Upload documents and ask anything.<br>
+                        Rorak will provide accurate and grounded answers.
+                    </p>
+                </div>
+
+                <!-- Chat messages (hidden until first message) -->
+                <div class="chat-messages" id="chatMessages"></div>
+
+                <!-- Input area (always at bottom) -->
+                <div class="input-area">
+                    <div class="notification" id="notification"></div>
+                    <div class="upload-indicator" id="uploadIndicator"></div>
+                    <div class="input-bar">
+                        <button class="btn-upload" id="uploadBtn" title="Upload PDF">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        </button>
+                        <input
+                            type="text"
+                            class="chat-input"
+                            id="chatInput"
+                            placeholder="Ask anything..."
+                            autocomplete="off"
+                        >
+                        <button class="btn-send" id="sendBtn" title="Send">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Hidden file input for PDF upload -->
+                <input type="file" id="fileInput" accept=".pdf" hidden>
+
+            </main>
+
+        </div>
     </div>
 
     <script src="script.js"></script>
