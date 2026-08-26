@@ -1,10 +1,13 @@
-from backend.rag.vector_store import vector_store
+from backend.rag import vector_store as vector_store_module
 from backend.core.config import RETRIEVAL_K
 
 
 def retriev_func(query):
 
-    retriever = vector_store.as_retriever(
+    if vector_store_module.vector_store is None:
+        return []
+
+    retriever = vector_store_module.vector_store.as_retriever(
         search_type="similarity",
         search_kwargs={
             "k": RETRIEVAL_K

@@ -18,3 +18,5 @@ Thumbs.db
 # Personal / uploaded documents
 documents/Rohit_Saini_Hired_Certificate.pdf
 documents/Rohit_Saini_Resume.pdf
+documents/*.pdf
+.firebase/

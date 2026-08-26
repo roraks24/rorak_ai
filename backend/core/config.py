@@ -59,3 +59,5 @@ if not GROQ_API_KEY:
         "GROQ_API_KEY is not set. "
         "Add it to the project root .env file."
     )
+
+

@@ -12,7 +12,7 @@
 
     // ── Configuration ──
     // Change this if the backend runs on a different host/port.
-    var API_BASE = "http://localhost:8000";
+    var API_BASE = "https://rorak-api-871304734461.asia-south1.run.app";
 
 
     // ── State ──
