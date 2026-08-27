@@ -1,8 +1,13 @@
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field
 
 
 class ChatRequest(BaseModel):
-    question: str
+    question: str = Field(
+        ...,
+        min_length=1,
+        max_length=10000,
+        description="The user's question"
+    )
 
 
 class ChatResponse(BaseModel):
@@ -12,11 +17,4 @@ class ChatResponse(BaseModel):
 class DocumentUploadResponse(BaseModel):
     message: str
     filename: str
-    chunks_created: int = Field(
-        validation_alias="Chunks Created",
-        serialization_alias="Chunks Created"
-    )
-
-    model_config = ConfigDict(
-        populate_by_name=True
-    )
+    chunks_created: int

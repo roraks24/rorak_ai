@@ -1,17 +1,19 @@
-from pathlib import Path
-from dotenv import load_dotenv
 import os
+import logging
+from pathlib import Path
+
+from dotenv import load_dotenv
 
 
 # Project root
-BASE_DIR = Path(__file__).resolve().parents[2]
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 # Load .env
 load_dotenv(BASE_DIR / ".env")
 
 
 # API configuration
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 
 
 # Model configuration
@@ -55,9 +57,8 @@ DOCUMENTS_DIR = BASE_DIR / "documents"
 
 # Validation
 if not GROQ_API_KEY:
-    raise ValueError(
+    logging.warning(
         "GROQ_API_KEY is not set. "
-        "Add it to the project root .env file."
+        "Set it via environment variable or .env file. "
+        "Chat features will not work."
     )
-
-

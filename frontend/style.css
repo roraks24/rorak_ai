@@ -48,7 +48,7 @@ html, body {
 }
 
 
-/* ── App Body (toolbar + sidebar + main) ── */
+/* ── App Body (sidebar + main) ── */
 
 .app-body {
     flex: 1;
@@ -58,63 +58,11 @@ html, body {
 }
 
 
-/* ── Icon Toolbar (narrow left strip) ── */
-
-.toolbar {
-    width: 52px;
-    min-width: 52px;
-    background: #0a0a0a;
-    border-right: 1px solid #1a1a1a;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 16px 0;
-    z-index: 100;
-}
-
-.toolbar-top {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 4px;
-}
-
-.toolbar-icon {
-    width: 38px;
-    height: 38px;
-    border-radius: 10px;
-    border: none;
-    background: transparent;
-    color: #666;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background 0.15s ease, color 0.15s ease;
-    padding: 0;
-}
-
-.toolbar-icon svg {
-    width: 18px;
-    height: 18px;
-}
-
-.toolbar-icon:hover {
-    background: #1a1a1a;
-    color: #aaa;
-}
-
-.toolbar-icon.active {
-    background: #1a1a1a;
-    color: #fff;
-}
-
-
 /* ── Sidebar Panel ── */
 
 .sidebar {
-    width: 220px;
-    min-width: 220px;
+    width: 260px;
+    min-width: 260px;
     background: #0e0e0e;
     border-right: 1px solid #1a1a1a;
     display: flex;
@@ -139,9 +87,10 @@ html, body {
 }
 
 .brand-logo {
-    width: 32px;
-    height: 32px;
-    color: #fff;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    object-fit: cover;
 }
 
 .brand-text {
@@ -270,7 +219,6 @@ html, body {
     display: flex;
     align-items: center;
     justify-content: center;
-    letter-spacing: 0;
 }
 
 
@@ -342,19 +290,15 @@ html, body {
 }
 
 .empty-logo {
-    width: 56px;
-    height: 56px;
-    color: #fff;
-    margin-bottom: 20px;
-}
-
-.empty-logo svg {
-    width: 100%;
-    height: 100%;
+    width: 72px;
+    height: 72px;
+    border-radius: 16px;
+    object-fit: cover;
+    margin-bottom: 24px;
 }
 
 .empty-title {
-    font-size: 40px;
+    font-size: 38px;
     font-weight: 700;
     color: #fff;
     letter-spacing: -0.03em;
@@ -580,7 +524,7 @@ html, body {
     align-items: center;
     border: 1px solid #2a2a2a;
     border-radius: 28px;
-    padding: 4px 4px 4px 4px;
+    padding: 4px;
     background: #1a1a1a;
     transition: border-color 0.15s ease;
 }
@@ -746,35 +690,21 @@ html, body {
 
 /* ── Responsive — Tablet & Below ── */
 
-@media (max-width: 900px) {
+@media (max-width: 768px) {
     .menu-toggle {
         display: flex;
     }
 
-    .toolbar {
-        position: fixed;
-        left: -52px;
-        top: 0;
-        bottom: 0;
-        transition: left 0.25s ease;
-        z-index: 110;
-    }
-
-    .toolbar.open {
-        left: 0;
-    }
-
     .sidebar {
         position: fixed;
-        left: -220px;
+        left: -260px;
         top: 0;
         bottom: 0;
         transition: left 0.25s ease;
-        z-index: 105;
     }
 
     .sidebar.open {
-        left: 52px;
+        left: 0;
     }
 
     .empty-state {
@@ -783,7 +713,7 @@ html, body {
     }
 
     .empty-title {
-        font-size: 32px;
+        font-size: 30px;
     }
 
     .chat-messages {
@@ -814,7 +744,7 @@ html, body {
     }
 
     .empty-title {
-        font-size: 28px;
+        font-size: 26px;
     }
 
     .empty-tagline {
@@ -826,7 +756,7 @@ html, body {
     }
 
     .chat-input {
-        font-size: 16px; /* prevent iOS zoom on focus */
+        font-size: 16px;
     }
 
     .input-area {

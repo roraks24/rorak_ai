@@ -11,7 +11,23 @@
     "use strict";
 
     // ── Configuration ──
-    var API_BASE = "http://localhost:8000";
+    var API_BASE = window.RORAK_API_BASE || "https://rorak-api-871304734461.asia-south1.run.app";
+
+    // ── Greetings (one picked randomly per page load) ──
+    var GREETINGS = [
+        "Hi Beautiful!",
+        "Hi Gorgeous!",
+        "Hi Sunshine!",
+        "Hi Brilliant!",
+        "Hi Wonderful!",
+        "Hi Superstar!",
+        "Hi Champion!",
+        "Hi Genius!",
+        "Hi Rockstar!",
+        "Hi Legend!",
+        "Hi Amazing!",
+        "Hi Incredible!"
+    ];
 
 
     // ── State ──
@@ -22,6 +38,7 @@
 
     // ── DOM References ──
     var emptyState = document.getElementById("emptyState");
+    var emptyGreeting = document.getElementById("emptyGreeting");
     var chatMessages = document.getElementById("chatMessages");
     var chatInput = document.getElementById("chatInput");
     var uploadBtn = document.getElementById("uploadBtn");
@@ -31,7 +48,6 @@
     var notification = document.getElementById("notification");
     var menuToggle = document.getElementById("menuToggle");
     var sidebar = document.getElementById("sidebar");
-    var toolbar = document.getElementById("toolbar");
     var sidebarOverlay = document.getElementById("sidebarOverlay");
 
 
@@ -45,8 +61,14 @@
     // ────────────────────────────────────────
 
     function init() {
+        setRandomGreeting();
         bindEvents();
         checkHealth();
+    }
+
+    function setRandomGreeting() {
+        var index = Math.floor(Math.random() * GREETINGS.length);
+        emptyGreeting.textContent = GREETINGS[index];
     }
 
     function bindEvents() {
@@ -274,11 +296,8 @@
     }
 
     function formatContent(text) {
-        // Escape HTML first
         var safe = escapeHtml(text);
-        // Render **bold** markers
         safe = safe.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-        // Preserve newlines
         safe = safe.replace(/\n/g, "<br>");
         return safe;
     }
@@ -400,14 +419,12 @@
             closeSidebar();
         } else {
             sidebar.classList.add("open");
-            toolbar.classList.add("open");
             sidebarOverlay.classList.add("active");
         }
     }
 
     function closeSidebar() {
         sidebar.classList.remove("open");
-        toolbar.classList.remove("open");
         sidebarOverlay.classList.remove("active");
     }
 

@@ -1,4 +1,4 @@
-﻿FROM python:3.14-slim
+FROM python:3.12-slim
 
 WORKDIR /app
 
@@ -8,6 +8,8 @@ ENV PYTHONDONTWRITEBYTECODE=1
 COPY requirements.txt .
 
 RUN pip install --no-cache-dir -r requirements.txt
+
+RUN mkdir -p /app/documents
 
 COPY backend ./backend
 
