@@ -59,8 +59,8 @@ app = FastAPI(
 origins = [
     "https://rorak.tech",
     "https://www.rorak.tech",
-    "https://rorak-ai.web.app",
-    "https://rorak-ai.firebaseapp.com",
+    "https://rorak-9axk.web.app",
+    "https://rorak-9axk.firebaseapp.com",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://localhost:5173",
