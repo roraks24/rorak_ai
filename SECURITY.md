@@ -33,7 +33,7 @@ Rorak AI incorporates defense-in-depth safety controls across the stack:
 If you discover a security vulnerability or prompt security concern within Rorak AI, please **do not open a public GitHub issue**.
 
 Instead, please report the vulnerability privately by contacting the maintainer via email:
-- **Email**: [rohitsaini11100@gmail.com](mailto:rohitsaini11100@gmail.com)
+- **Email**: [rohitsaini11100@gmail.com](mailto:rsaini2407@gmail.com)
 
 ### What to include in your report:
 - Type of issue (e.g., prompt injection leak, buffer overflow, SSRF, denial of service).
