@@ -1,27 +1,84 @@
-# Environment
+# ==========================================
+# Environment & Secrets
+# ==========================================
 .env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# ==========================================
+# Python & Virtual Environments
+# ==========================================
 .venv/
-
-# Python
+venv/
+ENV/
+env/
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
+*$py.class
+*.so
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
-# IDE
+# ==========================================
+# IDE & Editors
+# ==========================================
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
 
-# OS
+# ==========================================
+# OS Generated Files
+# ==========================================
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
 
-# Logs & Test Caches
+# ==========================================
+# Logs & Testing Caches
+# ==========================================
 *.log
+logs/
 firebase-debug.log
 .pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
 
-# Personal / uploaded documents
-documents/Rohit_Saini_Hired_Certificate.pdf
-documents/Rohit_Saini_Resume.pdf
+# ==========================================
+# Uploaded & Temporary Documents
+# ==========================================
 documents/*.pdf
+documents/temp_*
+documents/.faiss_index/
+!documents/.gitkeep
+!documents/README.md
+
+# ==========================================
+# Firebase / Deploy Artifacts
+# ==========================================
 .firebase/
