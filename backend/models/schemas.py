@@ -1,3 +1,4 @@
+from typing import Optional
 from pydantic import BaseModel, Field
 
 
@@ -18,3 +19,24 @@ class DocumentUploadResponse(BaseModel):
     message: str
     filename: str
     chunks_created: int
+
+
+class ErrorDetail(BaseModel):
+    code: str
+    message: str
+
+
+class APIErrorResponse(BaseModel):
+    error: ErrorDetail
+
+
+class HealthResponse(BaseModel):
+    status: str
+
+
+class ReadyResponse(BaseModel):
+    status: str
+    models_loaded: bool
+    vector_store_initialized: bool
+    documents_indexed: int
+    details: Optional[dict] = None

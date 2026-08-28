@@ -5,10 +5,10 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 
-# Project root
+# Project root (directory containing backend/)
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
-# Load .env
+# Load .env if present
 load_dotenv(BASE_DIR / ".env")
 
 
@@ -51,14 +51,21 @@ RERANK_TOP_K = int(
 )
 
 
-# Storage
+# Storage & upload limits
 DOCUMENTS_DIR = BASE_DIR / "documents"
+MAX_UPLOAD_SIZE_BYTES = int(
+    os.getenv("MAX_UPLOAD_SIZE_BYTES", str(10 * 1024 * 1024))  # 10 MB default
+)
+ALLOWED_EXTENSIONS = {".pdf"}
+
+
+# Logging configuration
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
 
 # Validation
 if not GROQ_API_KEY:
     logging.warning(
-        "GROQ_API_KEY is not set. "
-        "Set it via environment variable or .env file. "
-        "Chat features will not work."
+        "GROQ_API_KEY is not configured in environment or .env. "
+        "Generation features will be unavailable."
     )

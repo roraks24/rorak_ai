@@ -1,8 +1,9 @@
 /* ========================================
    Rorak V1 — Frontend Logic (Dark Theme)
    ========================================
-   Consumes the existing backend API:
+   Consumes Rorak Backend API:
      GET  /health/
+     GET  /ready/
      POST /documents/upload   (multipart, field: "file")
      POST /chat/              (JSON: { question })
    ======================================== */
@@ -13,30 +14,27 @@
     // ── Configuration ──
     var API_BASE = window.RORAK_API_BASE || "https://rorak-api-871304734461.asia-south1.run.app";
 
-    // ── Greetings (one picked randomly per page load) ──
+    // ── Greetings ──
     var GREETINGS = [
+        "Ready when you are.",
         "Hi Beautiful!",
         "Hi Gorgeous!",
         "Hi Sunshine!",
         "Hi Brilliant!",
-        "Hi Wonderful!",
         "Hi Superstar!",
         "Hi Champion!",
         "Hi Genius!",
         "Hi Rockstar!",
-        "Hi Legend!",
-        "Hi Amazing!",
-        "Hi Incredible!"
+        "Ready to explore your documents."
     ];
-
 
     // ── State ──
     var messages = [];
     var uploadedFileName = null;
     var isLoading = false;
 
-
     // ── DOM References ──
+    var mainArea = document.getElementById("mainArea");
     var emptyState = document.getElementById("emptyState");
     var emptyGreeting = document.getElementById("emptyGreeting");
     var chatMessages = document.getElementById("chatMessages");
@@ -49,7 +47,6 @@
     var menuToggle = document.getElementById("menuToggle");
     var sidebar = document.getElementById("sidebar");
     var sidebarOverlay = document.getElementById("sidebarOverlay");
-
 
     // ── SVG Templates ──
     var COPY_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
@@ -64,6 +61,31 @@
         setRandomGreeting();
         bindEvents();
         checkHealth();
+        clearBackendDocuments();
+    }
+
+    function clearBackendDocuments() {
+        fetch(API_BASE + "/documents/clear", {
+            method: "DELETE"
+        }).catch(function () {
+            // Ignore background clear errors
+        });
+    }
+
+    function resetConversation() {
+        messages = [];
+        uploadedFileName = null;
+        chatMessages.innerHTML = "";
+        chatMessages.classList.remove("active");
+        if (mainArea) mainArea.classList.add("is-empty");
+        if (emptyState) emptyState.style.display = "";
+        if (uploadIndicator) {
+            uploadIndicator.innerHTML = "";
+            uploadIndicator.classList.remove("active");
+        }
+        clearBackendDocuments();
+        setRandomGreeting();
+        chatInput.value = "";
     }
 
     function setRandomGreeting() {
@@ -87,14 +109,50 @@
         });
         fileInput.addEventListener("change", handleFileSelect);
 
+        // Mobile keyboard focus & viewport adjustments
+        chatInput.addEventListener("focus", function () {
+            setTimeout(function () {
+                scrollToBottom();
+                window.scrollTo(0, 0);
+            }, 150);
+            setTimeout(function () {
+                scrollToBottom();
+                window.scrollTo(0, 0);
+            }, 350);
+        });
+
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener("resize", function () {
+                scrollToBottom();
+                window.scrollTo(0, 0);
+            });
+            window.visualViewport.addEventListener("scroll", function () {
+                window.scrollTo(0, 0);
+            });
+        }
+
+        // Navigation
+        var navChatBtn = document.getElementById("navChatBtn");
+        if (navChatBtn) {
+            navChatBtn.addEventListener("click", function (e) {
+                e.preventDefault();
+                resetConversation();
+                closeSidebar();
+            });
+        }
+
         // Mobile sidebar
         menuToggle.addEventListener("click", toggleSidebar);
         sidebarOverlay.addEventListener("click", closeSidebar);
+        var sidebarCloseBtn = document.getElementById("sidebarCloseBtn");
+        if (sidebarCloseBtn) {
+            sidebarCloseBtn.addEventListener("click", closeSidebar);
+        }
     }
 
 
     // ────────────────────────────────────────
-    //  Health Check
+    //  Health & Readiness Check
     // ────────────────────────────────────────
 
     function checkHealth() {
@@ -105,11 +163,11 @@
             })
             .then(function (data) {
                 if (data.status !== "healthy") {
-                    showNotification("Backend is not healthy. Some features may not work.");
+                    showNotification("Backend service is initializing. Some features may take a moment.");
                 }
             })
             .catch(function () {
-                showNotification("Cannot connect to server. Please ensure the backend is running on " + API_BASE);
+                showNotification("Cannot connect to server. Please check your network or ensure backend is reachable.");
             });
     }
 
@@ -125,11 +183,17 @@
         fileInput.value = "";
 
         if (!file.name.toLowerCase().endsWith(".pdf")) {
-            showNotification("Only PDF files are supported.");
+            showNotification("Only PDF files (.pdf) are supported in V1.");
             return;
         }
 
-        showNotification("Uploading " + file.name + "\u2026");
+        // 10 MB client check
+        if (file.size > 10 * 1024 * 1024) {
+            showNotification("File exceeds 10 MB maximum allowed upload size.");
+            return;
+        }
+
+        showNotification("Uploading and indexing " + file.name + "…");
         uploadBtn.disabled = true;
 
         var formData = new FormData();
@@ -140,17 +204,19 @@
             body: formData
         })
             .then(function (res) {
-                if (!res.ok) {
-                    return res.json().then(function (err) {
-                        throw new Error(err.detail || "Upload failed");
-                    });
-                }
-                return res.json();
+                return res.json().then(function (data) {
+                    if (!res.ok) {
+                        var msg = (data && data.error && data.error.message) || data.detail || "Upload failed";
+                        throw new Error(msg);
+                    }
+                    return data;
+                });
             })
             .then(function (data) {
                 uploadedFileName = data.filename;
-                renderUploadChip(data.filename);
-                hideNotification();
+                renderUploadChip(data.filename, data.chunks_created);
+                showNotification("Document indexed (" + data.chunks_created + " chunks created). Ready for questions!");
+                setTimeout(hideNotification, 4000);
             })
             .catch(function (error) {
                 showNotification(error.message || "Upload failed. Please try again.");
@@ -160,10 +226,11 @@
             });
     }
 
-    function renderUploadChip(filename) {
+    function renderUploadChip(filename, chunkCount) {
+        var title = filename + (chunkCount ? " (" + chunkCount + " chunks)" : "");
         uploadIndicator.innerHTML =
             '<div class="upload-chip">' +
-                '<span>' + escapeHtml(filename) + '</span>' +
+                '<span>📄 ' + escapeHtml(title) + '</span>' +
                 '<button class="upload-chip-remove" title="Remove">&times;</button>' +
             '</div>';
         uploadIndicator.classList.add("active");
@@ -176,11 +243,20 @@
         uploadedFileName = null;
         uploadIndicator.innerHTML = "";
         uploadIndicator.classList.remove("active");
+
+        // Clear active documents and reset vector store on backend
+        fetch(API_BASE + "/documents/clear", {
+            method: "DELETE"
+        }).catch(function () {
+            // Ignore background clear error
+        });
+        showNotification("Document removed.");
+        setTimeout(hideNotification, 2500);
     }
 
 
     // ────────────────────────────────────────
-    //  Chat
+    //  Chat with Exponential Backoff Retry
     // ────────────────────────────────────────
 
     function handleSend() {
@@ -204,42 +280,79 @@
         sendBtn.disabled = true;
         var loadingId = showLoadingDots();
 
+        executeChatWithRetry(question, 0, loadingId);
+    }
+
+    function executeChatWithRetry(question, retryCount, loadingId) {
+        var MAX_RETRIES = 2;
+        var RETRY_DELAYS = [1000, 2000]; // 1s, 2s backoff
+
         fetch(API_BASE + "/chat/", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ question: question })
         })
             .then(function (res) {
-                if (!res.ok) throw new Error("Chat request failed");
-                return res.json();
+                return res.json().then(function (data) {
+                    if (!res.ok) {
+                        var errObj = new Error((data && data.error && data.error.message) || data.detail || "Chat request failed");
+                        errObj.status = res.status;
+                        throw errObj;
+                    }
+                    return data;
+                });
             })
             .then(function (data) {
                 removeLoadingDots(loadingId);
+                hideNotification();
                 addMessage("assistant", data.answer);
+                finishChat();
             })
-            .catch(function () {
-                removeLoadingDots(loadingId);
-                showNotification("Something went wrong. Please try again.");
-            })
-            .finally(function () {
-                isLoading = false;
-                sendBtn.disabled = false;
-                chatInput.focus();
+            .catch(function (error) {
+                var isTransient = !error.status || error.status >= 500;
+
+                if (isTransient && retryCount < MAX_RETRIES) {
+                    var delay = RETRY_DELAYS[retryCount];
+                    var nextAttempt = retryCount + 1;
+                    showNotification("Temporary backend issue. Retrying in " + (delay / 1000) + "s… (Attempt " + nextAttempt + "/" + MAX_RETRIES + ")");
+
+                    setTimeout(function () {
+                        executeChatWithRetry(question, retryCount + 1, loadingId);
+                    }, delay);
+                } else {
+                    removeLoadingDots(loadingId);
+                    var userMessage = error.message || "Something went wrong. Please try again.";
+                    showNotification(userMessage);
+                    finishChat();
+                }
             });
+    }
+
+    function finishChat() {
+        isLoading = false;
+        sendBtn.disabled = false;
+        chatInput.focus();
     }
 
 
     // ────────────────────────────────────────
-    //  Message Rendering
+    //  Message Rendering & Markdown
     // ────────────────────────────────────────
 
     function addMessage(role, content) {
         messages.push({ role: role, content: content });
 
-        // Transition from empty state to chat on first message
+        // Transition from centered empty landing state to active chat view
         if (messages.length === 1) {
-            emptyState.style.display = "none";
-            chatMessages.classList.add("active");
+            if (mainArea) {
+                mainArea.classList.remove("is-empty");
+            }
+            if (emptyState) {
+                emptyState.style.display = "none";
+            }
+            if (chatMessages) {
+                chatMessages.classList.add("active");
+            }
         }
 
         var msgEl = document.createElement("div");
@@ -265,8 +378,8 @@
 
         // Content
         var contentEl = document.createElement("div");
-        contentEl.className = "message-content";
-        contentEl.innerHTML = formatContent(content);
+        contentEl.className = "message-content markdown-body";
+        contentEl.innerHTML = formatContent(content, role);
         msgEl.appendChild(contentEl);
 
         // Footer (timestamp + copy) for assistant messages
@@ -295,11 +408,30 @@
         scrollToBottom();
     }
 
-    function formatContent(text) {
-        var safe = escapeHtml(text);
-        safe = safe.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-        safe = safe.replace(/\n/g, "<br>");
-        return safe;
+    function formatContent(text, role) {
+        if (role === "user") {
+            var safe = escapeHtml(text);
+            return safe.replace(/\n/g, "<br>");
+        }
+
+        // Assistant markdown rendering
+        if (window.marked && window.DOMPurify) {
+            try {
+                var rawHtml = window.marked.parse(text, {
+                    breaks: true,
+                    gfm: true
+                });
+                return window.DOMPurify.sanitize(rawHtml);
+            } catch (e) {
+                // fallback on parser error
+            }
+        }
+
+        // Fallback simple formatter
+        var safeText = escapeHtml(text);
+        safeText = safeText.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+        safeText = safeText.replace(/\n/g, "<br>");
+        return safeText;
     }
 
     function getCurrentTime() {
@@ -336,7 +468,7 @@
             document.execCommand("copy");
             showCopied(btn);
         } catch (e) {
-            // silently fail
+            // fail silently
         }
         document.body.removeChild(textarea);
     }
