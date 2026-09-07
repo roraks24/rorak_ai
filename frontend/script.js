@@ -12,7 +12,7 @@
     "use strict";
 
     // ── Configuration ──
-    var API_BASE = window.RORAK_API_BASE || "https://rorak-api-871304734461.asia-south1.run.app";
+    var API_BASE = window.RORAK_API_BASE || "https://api.rorak.tech";
 
     // ── Greetings ──
     var GREETINGS = [
