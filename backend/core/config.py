@@ -4,6 +4,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+logger = logging.getLogger(__name__)
+
 
 # Project root (directory containing backend/)
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -69,3 +71,8 @@ if not GROQ_API_KEY:
         "GROQ_API_KEY is not configured in environment or .env. "
         "Generation features will be unavailable."
     )
+
+# Database
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+if not DATABASE_URL:
+    logger.warning("DATABASE_URL is not configured")
