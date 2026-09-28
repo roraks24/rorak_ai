@@ -13,6 +13,7 @@ if config.config_file_name is not None:
 
 from backend.core.config import DATABASE_URL
 from backend.core.database import Base, engine
+import backend.models.db
 
 target_metadata = Base.metadata
 
