@@ -8,7 +8,6 @@ from typing import Optional, Dict, Any
 from langchain_community.vectorstores import FAISS
 
 from backend.rag.embeddings import embedding_model
-from backend.services.ingestion import ingest_func
 from backend.core.config import DOCUMENTS_DIR
 
 
@@ -77,6 +76,7 @@ def build_vector_store() -> Optional[FAISS]:
             })
         return vector_store
 
+    from backend.services.ingestion import ingest_func
     documents = []
     for file_path in pdf_files:
         try:

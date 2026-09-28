@@ -10,7 +10,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from backend.core.logging import setup_logging
 from backend.core.config import LOG_LEVEL
-from backend.routes import chat, documents, health
+from backend.routes import chat, conversations, documents, health, workspaces
 from backend.rag import vector_store as vector_store_module
 
 
@@ -25,12 +25,20 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     """
     In-memory per-IP sliding window rate limiter for V1 demo protection.
     """
+    _instances: list = []
 
     def __init__(self, app, max_requests: int = 30, window_seconds: int = 60):
         super().__init__(app)
         self.max_requests = max_requests
         self.window_seconds = window_seconds
         self.requests = defaultdict(list)
+        RateLimitMiddleware._instances.append(self)
+
+    @classmethod
+    def reset(cls):
+        """Reset rate limiter state (primarily for test isolation)."""
+        for inst in cls._instances:
+            inst.requests.clear()
 
     async def dispatch(self, request: Request, call_next):
         # Exclude basic health checks from strict rate limiting if needed
@@ -167,3 +175,5 @@ def root():
 app.include_router(health.router)
 app.include_router(chat.router)
 app.include_router(documents.router)
+app.include_router(workspaces.router)
+app.include_router(conversations.router)

@@ -1,6 +1,80 @@
+from datetime import datetime
+from enum import Enum
 from typing import Optional
-from pydantic import BaseModel, Field
+from uuid import UUID
 
+from pydantic import BaseModel, ConfigDict, Field
+
+
+# ============================================================
+# ENUMS
+# ============================================================
+
+class DocumentStatus(str, Enum):
+    UPLOADED = "UPLOADED"
+    PROCESSING = "PROCESSING"
+    INDEXED = "INDEXED"
+    FAILED = "FAILED"
+
+
+class IngestionStatus(str, Enum):
+    QUEUED = "QUEUED"
+    RUNNING = "RUNNING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+
+
+class MessageRole(str, Enum):
+    USER = "user"
+    ASSISTANT = "assistant"
+    SYSTEM = "system"
+
+
+# ============================================================
+# PAGINATION
+# ============================================================
+
+class Pagination(BaseModel):
+    page: int = Field(
+        default=1,
+        ge=1,
+        description="Current page number (1-indexed)"
+    )
+    page_size: int = Field(
+        default=20,
+        ge=1,
+        le=100,
+        description="Number of items per page"
+    )
+    total: int = Field(
+        default=0,
+        ge=0,
+        description="Total number of items"
+    )
+    total_pages: int = Field(
+        default=0,
+        ge=0,
+        description="Total number of pages"
+    )
+
+
+class PaginationParams(BaseModel):
+    page: int = Field(
+        default=1,
+        ge=1,
+        description="Page number"
+    )
+    page_size: int = Field(
+        default=20,
+        ge=1,
+        le=100,
+        description="Page size"
+    )
+
+
+# ============================================================
+# CHAT
+# ============================================================
 
 class ChatRequest(BaseModel):
     question: str = Field(
@@ -15,28 +89,207 @@ class ChatResponse(BaseModel):
     answer: str
 
 
+# ============================================================
+# DOCUMENT UPLOAD
+# ============================================================
+
 class DocumentUploadResponse(BaseModel):
     message: str
     filename: str
-    chunks_created: int
+    chunks_created: int = Field(
+        ge=0
+    )
 
+
+# ============================================================
+# ERRORS
+# ============================================================
 
 class ErrorDetail(BaseModel):
     code: str
     message: str
+    request_id: Optional[str] = None
+    field: Optional[str] = None
 
 
 class APIErrorResponse(BaseModel):
     error: ErrorDetail
 
 
+# ============================================================
+# HEALTH / READINESS
+# ============================================================
+
 class HealthResponse(BaseModel):
     status: str
+    version: str = "2.1.0"
 
 
 class ReadyResponse(BaseModel):
     status: str
     models_loaded: bool
     vector_store_initialized: bool
-    documents_indexed: int
+    database_connected: bool = True
+    documents_indexed: int = Field(
+        description="Number of indexed documents/files"
+    )
+    chunks_indexed: int = Field(
+        default=0,
+        description="Number of indexed chunks"
+    )
     details: Optional[dict] = None
+
+
+# ============================================================
+# WORKSPACE SCHEMAS
+# ============================================================
+
+class CreateWorkspaceRequest(BaseModel):
+    name: str = Field(
+        ...,
+        min_length=1,
+        max_length=50,
+        description="Unique workspace name"
+    )
+    owner_id: Optional[UUID] = None
+
+
+class WorkspaceResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    name: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class WorkspaceListResponse(BaseModel):
+    workspaces: list[WorkspaceResponse]
+    pagination: Pagination
+
+
+class AddMemberRequest(BaseModel):
+    user_id: UUID
+    role: str = Field(
+        default="member",
+        description="Role in workspace: owner, admin, member, or viewer"
+    )
+
+
+class WorkspaceMemberResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    workspace_id: UUID
+    user_id: UUID
+    role: str
+    created_at: datetime
+
+
+# ============================================================
+# DOCUMENT SCHEMAS
+# ============================================================
+
+class DocumentResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    workspace_id: UUID
+
+    filename: str
+    original_filename: str
+    file_type: str
+    file_size: int
+    page_count: int
+
+    status: DocumentStatus
+
+    created_at: datetime
+    updated_at: datetime
+
+
+class DocumentListResponse(BaseModel):
+    documents: list[DocumentResponse]
+    pagination: Pagination
+
+
+# ============================================================
+# CONVERSATION SCHEMAS
+# ============================================================
+
+class CreateConversationRequest(BaseModel):
+    workspace_id: UUID
+    user_id: UUID
+    title: str = Field(
+        ...,
+        min_length=1,
+        max_length=255,
+        description="Conversation title"
+    )
+
+
+class ConversationResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    workspace_id: UUID
+    user_id: UUID
+
+    title: str
+
+    created_at: datetime
+    updated_at: datetime
+
+
+class ConversationListResponse(BaseModel):
+    conversations: list[ConversationResponse]
+    pagination: Pagination
+
+
+# ============================================================
+# MESSAGE SCHEMAS
+# ============================================================
+
+class CreateMessageRequest(BaseModel):
+    role: MessageRole = MessageRole.USER
+    content: str = Field(
+        ...,
+        min_length=1,
+        max_length=10000,
+        description="Message content"
+    )
+
+
+class MessageResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    conversation_id: UUID
+
+    role: MessageRole
+    content: str
+
+    created_at: datetime
+
+
+class MessageListResponse(BaseModel):
+    messages: list[MessageResponse]
+    pagination: Pagination
+
+
+# ============================================================
+# INGESTION JOB SCHEMAS
+# ============================================================
+
+class IngestionJobResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    document_id: UUID
+
+    status: IngestionStatus
+
+    error_message: Optional[str] = None
+
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    created_at: datetime
