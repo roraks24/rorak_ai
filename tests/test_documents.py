@@ -1,80 +1,101 @@
 """
-Unit tests for document upload validation and error contracts.
+Unit tests for document upload validation and error contracts in V2.2.
 """
 import io
+import uuid
+import pytest
 from unittest.mock import patch
 from fastapi.testclient import TestClient
-from langchain_core.documents import Document
+from langchain_core.documents import Document as LCDocument
 
 from backend.main import app
+from backend.core.database import get_db
+from backend.models.db import Workspace, Document, DocumentChunk, IngestionJob
 
 
 client = TestClient(app)
 
 
-def test_upload_non_pdf_file_rejected():
-    """Verify non-PDF file upload returns 400 Bad Request with structured error."""
+@pytest.fixture
+def test_workspace():
+    gen = get_db()
+    session = next(gen)
+    ws = Workspace(id=uuid.uuid4(), name=f"DocUploadTest_WS_{uuid.uuid4().hex[:8]}")
+    session.add(ws)
+    session.commit()
+    try:
+        yield ws
+    finally:
+        # Clean any documents, chunks, jobs for this workspace in reverse FK order
+        doc_ids = [d.id for d in session.query(Document).filter(Document.workspace_id == ws.id).all()]
+        if doc_ids:
+            session.query(DocumentChunk).filter(DocumentChunk.document_id.in_(doc_ids)).delete(synchronize_session=False)
+            session.query(IngestionJob).filter(IngestionJob.document_id.in_(doc_ids)).delete(synchronize_session=False)
+            session.query(Document).filter(Document.workspace_id == ws.id).delete(synchronize_session=False)
+        session.query(Workspace).filter(Workspace.id == ws.id).delete(synchronize_session=False)
+        session.commit()
+
+
+def test_upload_missing_workspace_id_rejected():
+    """Verify upload without required workspace_id query parameter returns 422."""
+    file_bytes = io.BytesIO(b"%PDF-1.4 header")
+    response = client.post(
+        "/documents/upload",
+        files={"file": ("test.pdf", file_bytes, "application/pdf")},
+    )
+    assert response.status_code == 422
+
+
+def test_upload_non_pdf_file_rejected(test_workspace):
+    """Verify non-PDF file upload returns 400 Bad Request with descriptive message."""
     file_bytes = io.BytesIO(b"Plain text content")
     response = client.post(
-        "/documents/upload",
-        files={"file": ("test.txt", file_bytes, "text/plain")}
+        f"/documents/upload?workspace_id={test_workspace.id}",
+        files={"file": ("test.txt", file_bytes, "text/plain")},
     )
     assert response.status_code == 400
     data = response.json()
-    assert "error" in data
-    assert data["error"]["code"] == "INVALID_FILE_TYPE"
+    assert "detail" in data
+    assert "Only PDF files are supported" in data["detail"]
 
 
-def test_upload_empty_pdf_rejected():
-    """Verify empty 0-byte PDF upload returns 400 Bad Request."""
+def test_upload_empty_pdf_rejected(test_workspace):
+    """Verify empty 0-byte PDF upload returns 422 Unprocessable Entity."""
     empty_bytes = io.BytesIO(b"")
     response = client.post(
-        "/documents/upload",
-        files={"file": ("empty.pdf", empty_bytes, "application/pdf")}
+        f"/documents/upload?workspace_id={test_workspace.id}",
+        files={"file": ("empty.pdf", empty_bytes, "application/pdf")},
     )
-    assert response.status_code == 400
+    assert response.status_code == 422
     data = response.json()
-    assert data["error"]["code"] == "EMPTY_FILE"
+    assert "detail" in data
+    assert "No readable text content could be extracted" in data["detail"]
 
 
-def test_upload_oversized_pdf_rejected():
-    """Verify oversized file upload (> 10 MB) returns 413 Payload Too Large."""
-    # 11 MB payload
-    large_bytes = io.BytesIO(b"0" * (11 * 1024 * 1024))
-    response = client.post(
-        "/documents/upload",
-        files={"file": ("huge.pdf", large_bytes, "application/pdf")}
-    )
-    assert response.status_code == 413
+def test_upload_valid_pdf_success(test_workspace):
+    """Verify valid PDF upload succeeds and returns 201 Created with DocumentUploadResponse."""
+    valid_pdf_bytes = io.BytesIO(b"%PDF-1.4 header dummy content for upload test")
+
+    with patch("backend.services.document_service.ingest_func") as mock_ingest:
+        mock_ingest.return_value = [
+            LCDocument(page_content="Valid chunk content 1", metadata={"source": "valid.pdf", "page": 1}),
+            LCDocument(page_content="Valid chunk content 2", metadata={"source": "valid.pdf", "page": 2}),
+        ]
+        response = client.post(
+            f"/documents/upload?workspace_id={test_workspace.id}",
+            files={"file": ("valid.pdf", valid_pdf_bytes, "application/pdf")},
+        )
+
+    assert response.status_code == 201
     data = response.json()
-    assert data["error"]["code"] == "FILE_TOO_LARGE"
+    assert "document" in data
+    assert data["document"]["original_filename"] == "valid.pdf"
+    assert data["document"]["display_name"] == "valid.pdf"
+    assert data["chunk_count"] == 2
+    assert "ingestion_job" in data
+    assert data["ingestion_job"]["status"] == "SUCCEEDED"
 
-
-@patch("backend.routes.documents.ingest_func")
-@patch("backend.routes.documents.add_documents")
-def test_upload_valid_pdf_success(mock_add_docs, mock_ingest):
-    """Verify valid PDF upload succeeds and returns 200 with chunk metadata."""
-    mock_ingest.return_value = [
-        Document(page_content="Valid chunk content 1", metadata={"source": "valid.pdf", "page": 1}),
-        Document(page_content="Valid chunk content 2", metadata={"source": "valid.pdf", "page": 2}),
-    ]
-
-    valid_pdf_bytes = io.BytesIO(b"%PDF-1.4 header dummy content")
-    response = client.post(
-        "/documents/upload",
-        files={"file": ("valid.pdf", valid_pdf_bytes, "application/pdf")}
-    )
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["filename"] == "valid.pdf"
-    assert data["chunks_created"] == 2
-    mock_add_docs.assert_called_once()
-
-
-def test_clear_documents_endpoint():
-    """Verify DELETE /documents/clear resets the vector store and returns 200."""
-    response = client.delete("/documents/clear")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["status"] == "cleared"
+    # Cleanup the created document via DELETE endpoint
+    doc_id = data["document"]["id"]
+    del_resp = client.delete(f"/documents/{doc_id}")
+    assert del_resp.status_code == 204

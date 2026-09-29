@@ -30,8 +30,6 @@ def test_openapi_routes_contract():
         "/ready/",
         "/chat/",
         "/documents/upload",
-        "/documents/clear",
-        "/documents/db-test",
         "/documents/",
         "/documents/{document_id}",
         "/workspaces/",

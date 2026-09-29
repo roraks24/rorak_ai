@@ -28,6 +28,7 @@ from backend.models.schemas import (
     CreateConversationRequest,
     CreateMessageRequest,
     AddMemberRequest,
+    RenameDocumentRequest,
 )
 
 
@@ -135,14 +136,23 @@ def test_document_schemas():
         workspace_id=ws_id,
         filename="report.pdf",
         original_filename="Q3_Report.pdf",
+        display_name="Q3 Report",
         file_type="pdf",
+        mime_type="application/pdf",
         file_size=2048,
         page_count=3,
+        chunk_count=5,
         status=DocumentStatus.INDEXED,
+        failure_reason=None,
         created_at=now,
         updated_at=now,
     )
     assert doc.status == DocumentStatus.INDEXED
+    assert doc.display_name == "Q3 Report"
+    assert doc.original_filename == "Q3_Report.pdf"
+    assert doc.mime_type == "application/pdf"
+    assert doc.chunk_count == 5
+    assert doc.failure_reason is None
 
     doc_list = DocumentListResponse(
         documents=[doc],
@@ -272,3 +282,105 @@ def test_api_error_response_schema():
     assert err.error.request_id is None
     assert err.error.field is None
 
+
+def test_rename_document_request_validation():
+    """Verify RenameDocumentRequest validation rules."""
+    # Valid name
+    req = RenameDocumentRequest(display_name="My Research Notes")
+    assert req.display_name == "My Research Notes"
+
+    # Single character valid
+    req_short = RenameDocumentRequest(display_name="A")
+    assert req_short.display_name == "A"
+
+    # Exactly 255 characters valid
+    req_max = RenameDocumentRequest(display_name="x" * 255)
+    assert len(req_max.display_name) == 255
+
+    # Empty string rejected
+    with pytest.raises(PydanticValidationError):
+        RenameDocumentRequest(display_name="")
+
+    # Too long (> 255 characters) rejected
+    with pytest.raises(PydanticValidationError):
+        RenameDocumentRequest(display_name="x" * 256)
+
+
+def test_document_upload_response_schema():
+    """Verify DocumentUploadResponse structure with document, ingestion_job, and chunk_count."""
+    now = datetime.now(timezone.utc)
+    doc_id = uuid.uuid4()
+    ws_id = uuid.uuid4()
+    job_id = uuid.uuid4()
+
+    doc_resp = DocumentResponse(
+        id=doc_id,
+        workspace_id=ws_id,
+        filename="notes.pdf",
+        original_filename="My_Notes.pdf",
+        display_name="My Notes",
+        file_type="pdf",
+        mime_type="application/pdf",
+        file_size=1024,
+        page_count=2,
+        chunk_count=4,
+        status=DocumentStatus.INDEXED,
+        failure_reason=None,
+        created_at=now,
+        updated_at=now,
+    )
+
+    job_resp = IngestionJobResponse(
+        id=job_id,
+        document_id=doc_id,
+        status=IngestionStatus.SUCCEEDED,
+        error_message=None,
+        started_at=now,
+        completed_at=now,
+        created_at=now,
+    )
+
+    upload_resp = DocumentUploadResponse(
+        document=doc_resp,
+        ingestion_job=job_resp,
+        chunk_count=4,
+    )
+
+    assert upload_resp.document.id == doc_id
+    assert upload_resp.ingestion_job.id == job_id
+    assert upload_resp.chunk_count == 4
+
+
+def test_document_response_orm_serialization():
+    """Verify DocumentResponse serializes correctly from an ORM-like object."""
+    from unittest.mock import Mock
+
+    now = datetime.now(timezone.utc)
+    doc_id = uuid.uuid4()
+    ws_id = uuid.uuid4()
+
+    orm_doc = Mock()
+    orm_doc.id = doc_id
+    orm_doc.workspace_id = ws_id
+    orm_doc.filename = "report.pdf"
+    orm_doc.original_filename = "Quarterly_Report.pdf"
+    orm_doc.display_name = "Quarterly Report"
+    orm_doc.file_type = "pdf"
+    orm_doc.mime_type = "application/pdf"
+    orm_doc.file_size = 4096
+    orm_doc.page_count = 10
+    orm_doc.chunk_count = 25
+    orm_doc.status = DocumentStatus.INDEXED
+    orm_doc.failure_reason = None
+    orm_doc.created_at = now
+    orm_doc.updated_at = now
+
+    resp = DocumentResponse.model_validate(orm_doc)
+    assert resp.id == doc_id
+    assert resp.workspace_id == ws_id
+    assert resp.display_name == "Quarterly Report"
+    assert resp.original_filename == "Quarterly_Report.pdf"
+    assert resp.mime_type == "application/pdf"
+    assert resp.chunk_count == 25
+    assert resp.status == DocumentStatus.INDEXED
+    assert resp.failure_reason is None

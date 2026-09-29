@@ -38,23 +38,23 @@ class Pagination(BaseModel):
     page: int = Field(
         default=1,
         ge=1,
-        description="Current page number (1-indexed)"
+        description="Current page number (1-indexed)",
     )
     page_size: int = Field(
         default=20,
         ge=1,
         le=100,
-        description="Number of items per page"
+        description="Number of items per page",
     )
     total: int = Field(
         default=0,
         ge=0,
-        description="Total number of items"
+        description="Total number of items",
     )
     total_pages: int = Field(
         default=0,
         ge=0,
-        description="Total number of pages"
+        description="Total number of pages",
     )
 
 
@@ -62,13 +62,13 @@ class PaginationParams(BaseModel):
     page: int = Field(
         default=1,
         ge=1,
-        description="Page number"
+        description="Page number",
     )
     page_size: int = Field(
         default=20,
         ge=1,
         le=100,
-        description="Page size"
+        description="Page size",
     )
 
 
@@ -81,7 +81,7 @@ class ChatRequest(BaseModel):
         ...,
         min_length=1,
         max_length=10000,
-        description="The user's question"
+        description="The user's question",
     )
 
 
@@ -94,10 +94,11 @@ class ChatResponse(BaseModel):
 # ============================================================
 
 class DocumentUploadResponse(BaseModel):
-    message: str
-    filename: str
-    chunks_created: int = Field(
-        ge=0
+    document: "DocumentResponse"
+    ingestion_job: "IngestionJobResponse"
+    chunk_count: int = Field(
+        ge=0,
+        description="Number of chunks created during ingestion",
     )
 
 
@@ -131,11 +132,11 @@ class ReadyResponse(BaseModel):
     vector_store_initialized: bool
     database_connected: bool = True
     documents_indexed: int = Field(
-        description="Number of indexed documents/files"
+        description="Number of indexed documents/files",
     )
     chunks_indexed: int = Field(
         default=0,
-        description="Number of indexed chunks"
+        description="Number of indexed chunks",
     )
     details: Optional[dict] = None
 
@@ -149,7 +150,7 @@ class CreateWorkspaceRequest(BaseModel):
         ...,
         min_length=1,
         max_length=50,
-        description="Unique workspace name"
+        description="Unique workspace name",
     )
     owner_id: Optional[UUID] = None
 
@@ -172,7 +173,7 @@ class AddMemberRequest(BaseModel):
     user_id: UUID
     role: str = Field(
         default="member",
-        description="Role in workspace: owner, admin, member, or viewer"
+        description="Role in workspace: owner, admin, member, or viewer",
     )
 
 
@@ -189,6 +190,15 @@ class WorkspaceMemberResponse(BaseModel):
 # DOCUMENT SCHEMAS
 # ============================================================
 
+class RenameDocumentRequest(BaseModel):
+    display_name: str = Field(
+        ...,
+        min_length=1,
+        max_length=255,
+        description="User-facing document display name",
+    )
+
+
 class DocumentResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -197,11 +207,17 @@ class DocumentResponse(BaseModel):
 
     filename: str
     original_filename: str
+    display_name: str
+
     file_type: str
+    mime_type: str
+
     file_size: int
     page_count: int
+    chunk_count: int
 
     status: DocumentStatus
+    failure_reason: Optional[str] = None
 
     created_at: datetime
     updated_at: datetime
@@ -223,7 +239,7 @@ class CreateConversationRequest(BaseModel):
         ...,
         min_length=1,
         max_length=255,
-        description="Conversation title"
+        description="Conversation title",
     )
 
 
@@ -255,7 +271,7 @@ class CreateMessageRequest(BaseModel):
         ...,
         min_length=1,
         max_length=10000,
-        description="Message content"
+        description="Message content",
     )
 
 

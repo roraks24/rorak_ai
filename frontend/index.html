@@ -62,6 +62,17 @@
                             <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                             Chat
                         </a>
+                        <a class="nav-item" id="navDocsBtn" href="#">
+                            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                <polyline points="14 2 14 8 20 8"></polyline>
+                                <line x1="16" y1="13" x2="8" y2="13"></line>
+                                <line x1="16" y1="17" x2="8" y2="17"></line>
+                                <polyline points="10 9 9 9 8 9"></polyline>
+                            </svg>
+                            Documents
+                            <span class="nav-badge" id="docsCountBadge">0</span>
+                        </a>
                         <div class="nav-item disabled">
                             <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22 6 12 13 2 6"/></svg>
                             Memory
@@ -130,14 +141,152 @@
                             </button>
                         </div>
                     </div>
-
                 </div>
 
                 <!-- Hidden file input for PDF upload -->
                 <input type="file" id="fileInput" accept=".pdf" hidden>
 
+                <!-- Document Library Section (V2.2) -->
+                <section class="docs-section" id="docsSection" style="display: none;">
+                    <div class="docs-header">
+                        <div class="docs-header-left">
+                            <h2 class="docs-title">Document Library</h2>
+                            <p class="docs-subtitle">Manage knowledge artifacts, inspect ingestion state, and ground RAG conversations.</p>
+                        </div>
+                        <div class="docs-header-actions">
+                            <button class="btn-secondary" id="docsRefreshBtn" title="Refresh document list">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="23 4 23 10 17 10"></polyline>
+                                    <polyline points="1 20 1 14 7 14"></polyline>
+                                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                                </svg>
+                                <span>Refresh</span>
+                            </button>
+                            <button class="btn-primary" id="docsUploadBtn" title="Upload PDF Document">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                    <polyline points="17 8 12 3 7 8"></polyline>
+                                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                                </svg>
+                                <span>Upload PDF</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Upload Progress Bar (Visible during upload) -->
+                    <div class="docs-upload-progress" id="docsUploadProgress" style="display: none;">
+                        <div class="progress-info">
+                            <span class="progress-file" id="progressFileName">uploading.pdf</span>
+                            <span class="progress-status" id="progressStatusText">Uploading (0%)...</span>
+                        </div>
+                        <div class="progress-track">
+                            <div class="progress-bar" id="progressBar" style="width: 0%;"></div>
+                        </div>
+                    </div>
+
+                    <!-- Metrics bar -->
+                    <div class="docs-metrics-bar" id="docsMetricsBar">
+                        <div class="metric-item">
+                            <span class="metric-label">Total Documents</span>
+                            <span class="metric-value" id="metricTotalDocs">0</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Ready for Search</span>
+                            <span class="metric-value metric-success" id="metricReadyDocs">0</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Total Chunks</span>
+                            <span class="metric-value" id="metricTotalChunks">0</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Total Pages</span>
+                            <span class="metric-value" id="metricTotalPages">0</span>
+                        </div>
+                    </div>
+
+                    <!-- Document Cards / List Container -->
+                    <div class="docs-list-container" id="docsListContainer">
+                        <div class="docs-list" id="docsList">
+                            <!-- Populated dynamically via script.js -->
+                        </div>
+                    </div>
+
+                    <!-- Pagination Controls -->
+                    <div class="docs-pagination" id="docsPagination" style="display: none;">
+                        <button class="btn-page" id="btnPrevPage" disabled>&larr; Previous</button>
+                        <span class="page-indicator" id="pageIndicator">Page 1 of 1</span>
+                        <button class="btn-page" id="btnNextPage" disabled>Next &rarr;</button>
+                    </div>
+                </section>
+
             </main>
 
+        </div>
+    </div>
+
+    <!-- Modals -->
+
+    <!-- Document Details Modal -->
+    <div class="modal-backdrop" id="docDetailsModal" style="display: none;">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <h3 class="modal-title">Document Metadata</h3>
+                <button class="modal-close" id="docDetailsCloseBtn" title="Close">&times;</button>
+            </div>
+            <div class="modal-body doc-details-body" id="docDetailsContent">
+                <!-- Populated dynamically via script.js -->
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" id="docDetailsDoneBtn">Done</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Document Rename Modal -->
+    <div class="modal-backdrop" id="docRenameModal" style="display: none;">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <h3 class="modal-title">Rename Document</h3>
+                <button class="modal-close" id="docRenameCloseBtn" title="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-help">Change the display name of this document. The underlying storage key, checksum, and original filename will remain unchanged.</p>
+                <div class="form-group">
+                    <label for="renameInput">Display Name (1–255 characters)</label>
+                    <input type="text" class="text-input" id="renameInput" maxlength="255" autocomplete="off" placeholder="e.g. My Research Notes">
+                    <div class="form-char-count" id="renameCharCount">0 / 255</div>
+                </div>
+                <div class="form-error" id="renameError" style="display: none;"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" id="docRenameCancelBtn">Cancel</button>
+                <button class="btn-primary" id="docRenameSubmitBtn">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Document Delete Confirmation Modal -->
+    <div class="modal-backdrop" id="docDeleteModal" style="display: none;">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <h3 class="modal-title">Delete Document</h3>
+                <button class="modal-close" id="docDeleteCloseBtn" title="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="delete-warning-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                        <line x1="12" y1="9" x2="12" y2="13"></line>
+                        <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                    </svg>
+                </div>
+                <p class="modal-confirm-text">Are you sure you want to delete <strong id="deleteDocName">this document</strong>?</p>
+                <p class="modal-help delete-help">This will permanently remove the document record, all associated chunks, ingestion jobs, physical disk artifacts, and search vector embeddings. This action cannot be undone.</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" id="docDeleteCancelBtn">Cancel</button>
+                <button class="btn-danger" id="docDeleteConfirmBtn">Delete Permanently</button>
+            </div>
         </div>
     </div>
 

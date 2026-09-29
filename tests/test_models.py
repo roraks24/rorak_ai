@@ -100,12 +100,18 @@ def test_full_model_relationships():
             id=uuid.uuid4(),
             workspace_id=ws.id,
             filename="test.pdf",
+            display_name="test.pdf",
             original_filename="test.pdf",
             file_type="pdf",
+            mime_type="application/pdf",
             file_size=1024,
             page_count=1,
+            chunk_count=0,
+            storage_key="documents/test.pdf",
+            checksum_sha256=None,
             status="INDEXED",
-        )
+            failure_reason=None,
+)
         db.add(doc)
         db.commit()
 
@@ -220,11 +226,17 @@ def test_document_foreign_key_violation():
             id=uuid.uuid4(),
             workspace_id=uuid.uuid4(),
             filename="orphan.pdf",
+            display_name="orphan.pdf",
             original_filename="orphan.pdf",
             file_type="pdf",
+            mime_type="application/pdf",
             file_size=100,
             page_count=1,
+            chunk_count=0,
+            storage_key="documents/orphan.pdf",
+            checksum_sha256="fake_sha256",
             status="UPLOADED",
+            failure_reason=None,
         )
         db.add(orphan)
         with pytest.raises(IntegrityError):
@@ -307,6 +319,116 @@ def test_workspace_member_duplicate_pk_violation():
         db.query(WorkspaceMember).filter(WorkspaceMember.workspace_id == ws.id).delete()
         db.query(Workspace).filter(Workspace.id == ws.id).delete()
         db.query(User).filter(User.id == user.id).delete()
+        db.commit()
+        try:
+            next(db_gen)
+        except StopIteration:
+            pass
+
+
+def test_v2_2_document_model_fields():
+    """Verify all V2.2 required document columns exist on the Document model."""
+    expected_columns = {
+        "id",
+        "workspace_id",
+        "filename",
+        "display_name",
+        "original_filename",
+        "file_type",
+        "mime_type",
+        "file_size",
+        "page_count",
+        "chunk_count",
+        "storage_key",
+        "checksum_sha256",
+        "status",
+        "failure_reason",
+        "created_at",
+        "updated_at",
+    }
+    actual_columns = set(Document.__table__.columns.keys())
+    assert expected_columns.issubset(actual_columns), f"Missing columns: {expected_columns - actual_columns}"
+
+
+def test_v2_2_document_model_crud_and_status():
+    """Verify Document model persists V2.2 fields and handles status transitions."""
+    db_gen = get_db()
+    db = next(db_gen)
+    unique_suffix = uuid.uuid4().hex[:8]
+    ws = Workspace(id=uuid.uuid4(), name=f"WS_{unique_suffix}")
+    db.add(ws)
+    db.commit()
+
+    doc_id = uuid.uuid4()
+    try:
+        # 1. Create document with UPLOADED status
+        doc = Document(
+            id=doc_id,
+            workspace_id=ws.id,
+            filename=f"doc_{unique_suffix}.pdf",
+            display_name="Initial Display Name",
+            original_filename="Original_Document.pdf",
+            file_type="pdf",
+            mime_type="application/pdf",
+            file_size=2048,
+            page_count=3,
+            chunk_count=0,
+            storage_key=f"documents/{doc_id}/original/Original_Document.pdf",
+            checksum_sha256="abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            status="UPLOADED",
+            failure_reason=None,
+        )
+        db.add(doc)
+        db.commit()
+
+        # Query and verify
+        fetched = db.query(Document).filter(Document.id == doc_id).first()
+        assert fetched is not None
+        assert fetched.display_name == "Initial Display Name"
+        assert fetched.original_filename == "Original_Document.pdf"
+        assert fetched.mime_type == "application/pdf"
+        assert fetched.chunk_count == 0
+        assert fetched.status == "UPLOADED"
+        assert fetched.failure_reason is None
+
+        # 2. Transition status: PROCESSING -> INDEXED
+        fetched.status = "PROCESSING"
+        db.commit()
+        assert db.query(Document).filter(Document.id == doc_id).first().status == "PROCESSING"
+
+        fetched.status = "INDEXED"
+        fetched.chunk_count = 6
+        db.commit()
+        indexed_doc = db.query(Document).filter(Document.id == doc_id).first()
+        assert indexed_doc.status == "INDEXED"
+        assert indexed_doc.chunk_count == 6
+
+        # 3. Rename display_name
+        indexed_doc.display_name = "My Research Notes"
+        db.commit()
+        renamed_doc = db.query(Document).filter(Document.id == doc_id).first()
+        assert renamed_doc.display_name == "My Research Notes"
+
+        # 4. Transition to FAILED with failure_reason
+        renamed_doc.status = "FAILED"
+        renamed_doc.failure_reason = "Corrupted PDF stream encountered"
+        db.commit()
+        failed_doc = db.query(Document).filter(Document.id == doc_id).first()
+        assert failed_doc.status == "FAILED"
+        assert failed_doc.failure_reason == "Corrupted PDF stream encountered"
+
+        # 5. Delete document
+        db.delete(failed_doc)
+        db.commit()
+        assert db.query(Document).filter(Document.id == doc_id).first() is None
+
+    finally:
+        db.rollback()
+        # Clean up any leftover document and workspace
+        leftover = db.query(Document).filter(Document.id == doc_id).first()
+        if leftover:
+            db.delete(leftover)
+        db.query(Workspace).filter(Workspace.id == ws.id).delete()
         db.commit()
         try:
             next(db_gen)

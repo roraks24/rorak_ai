@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, ForeignKey, String, func
+from sqlalchemy import DateTime, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -28,12 +28,22 @@ class Document(Base):
         nullable=False,
     )
 
+    display_name: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+
     original_filename: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
     )
 
     file_type: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+    )
+
+    mime_type: Mapped[str] = mapped_column(
         String(100),
         nullable=False,
     )
@@ -46,9 +56,29 @@ class Document(Base):
         nullable=False,
     )
 
+    chunk_count: Mapped[int] = mapped_column(
+        nullable=False,
+    )
+
+    storage_key: Mapped[str] = mapped_column(
+        String(500),
+        nullable=False,
+    )
+
+    checksum_sha256: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+    )
+
     status: Mapped[str] = mapped_column(
         String(50),
         nullable=False,
+        default="UPLOADED",
+    )
+
+    failure_reason: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
     )
 
     created_at: Mapped[datetime] = mapped_column(

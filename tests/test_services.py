@@ -4,10 +4,20 @@ from pathlib import Path
 import pytest
 from langchain_core.documents import Document as LCDocument
 
+from backend.core.config import BASE_DIR
 from backend.core.database import get_db
-from backend.models.db import User, Workspace
+from backend.models.db import User, Workspace, Document, DocumentChunk, IngestionJob
 from backend.models.schemas import DocumentStatus, IngestionStatus, MessageRole
+from backend.rag import vector_store as vector_store_module
+from backend.rag.vector_store import (
+    add_documents,
+    delete_documents_by_document_id,
+)
 from backend.services.document_service import DocumentService
+from backend.services.document_storage import (
+    save_artifact,
+    delete_artifact,
+)
 from backend.services.conversation_service import ConversationService
 from backend.services.workspace_service import WorkspaceService
 from backend.services.exceptions import (
@@ -385,4 +395,283 @@ def test_service_not_found_validations(db_session):
         conv_svc.send_user_message_and_reply(fake_id, "hi")
 
 
+# ============================================================
+# V2.2 DOCUMENT SERVICE LIFECYCLE & DELETION INVARIANT TESTS
+# ============================================================
 
+def test_document_service_rename_validation_and_execution(db_session, sample_workspace_and_user):
+    """Verify DocumentService rename updates display_name and enforces validation."""
+    ws, _ = sample_workspace_and_user
+    service = DocumentService(db_session)
+
+    doc = service.create_document(
+        workspace_id=ws.id,
+        filename="notes.pdf",
+        original_filename="notes_v1.pdf",
+        file_size=1024,
+        page_count=2,
+    )
+
+    try:
+        # Validation: empty display_name
+        with pytest.raises(ValidationError):
+            service.rename_document(doc.id, "")
+
+        # Validation: whitespace-only display_name
+        with pytest.raises(ValidationError):
+            service.rename_document(doc.id, "   ")
+
+        # Validation: name too long (> 255 characters)
+        with pytest.raises(ValidationError):
+            service.rename_document(doc.id, "A" * 256)
+
+        # Validation: nonexistent document
+        with pytest.raises(DocumentNotFound):
+            service.rename_document(uuid.uuid4(), "Valid Name")
+
+        # Successful rename
+        renamed = service.rename_document(doc.id, "My Research Notes")
+        assert renamed.display_name == "My Research Notes"
+
+        fetched = service.get_document(doc.id)
+        assert fetched.display_name == "My Research Notes"
+    finally:
+        service.delete_document(doc.id)
+
+
+def test_document_service_missing_artifact_handling(db_session, sample_workspace_and_user, tmp_path):
+    """Verify document deletion succeeds gracefully when the physical artifact is missing."""
+    ws, _ = sample_workspace_and_user
+    service = DocumentService(db_session)
+
+    # Ingest a document
+    dummy_file = tmp_path / "temp_missing.pdf"
+    dummy_file.write_bytes(b"%PDF-1.4 mock content for missing artifact test")
+
+    with patch("backend.services.document_service.ingest_func") as mock_ingest:
+        mock_ingest.return_value = [
+            LCDocument(page_content="Content chunk", metadata={"page": 1})
+        ]
+        doc, job, _ = service.ingest_document(
+            workspace_id=ws.id,
+            file_path=dummy_file,
+            original_filename="temp_missing.pdf",
+            file_size=len(dummy_file.read_bytes()),
+        )
+
+    # Manually delete the physical artifact from disk before service.delete_document
+    artifact_path = BASE_DIR / doc.storage_key
+    if artifact_path.exists():
+        artifact_path.unlink()
+    assert not artifact_path.exists()
+
+    # Deletion must succeed without raising FileNotFoundError
+    service.delete_document(doc.id)
+
+    # Document must be deleted from database
+    with pytest.raises(DocumentNotFound):
+        service.get_document(doc.id)
+
+
+def test_critical_deletion_invariant(db_session, sample_workspace_and_user, tmp_path):
+    """
+    CRITICAL DELETION TEST:
+    Create one document with:
+    - durable source artifact
+    - DocumentChunk rows
+    - ingestion job
+    - FAISS vectors
+
+    Delete that document.
+
+    Assert that after successful deletion:
+    - document lookup is gone
+    - document chunk count is zero
+    - ingestion-job count is zero
+    - physical artifact is absent
+    - its vectors are no longer retrievable / identifiable
+    """
+    ws, _ = sample_workspace_and_user
+    service = DocumentService(db_session)
+
+    # Create dummy PDF file
+    test_pdf = tmp_path / "deletion_invariant.pdf"
+    test_pdf.write_bytes(b"%PDF-1.4 critical deletion invariant source data")
+
+    # Ingest document with mock extraction
+    with patch("backend.services.document_service.ingest_func") as mock_ingest:
+        mock_ingest.return_value = [
+            LCDocument(
+                page_content="Invariant chunk alpha content for retrieval test",
+                metadata={"page": 1},
+            ),
+            LCDocument(
+                page_content="Invariant chunk beta content for retrieval test",
+                metadata={"page": 2},
+            ),
+        ]
+        doc, job, chunk_count = service.ingest_document(
+            workspace_id=ws.id,
+            file_path=test_pdf,
+            original_filename="deletion_invariant.pdf",
+            file_size=len(test_pdf.read_bytes()),
+        )
+
+    doc_id = doc.id
+    doc_id_str = str(doc_id)
+    storage_key = doc.storage_key
+    artifact_path = BASE_DIR / storage_key
+
+    # Assert pre-conditions
+    assert doc.status == DocumentStatus.INDEXED.value
+    assert job.status == IngestionStatus.SUCCEEDED.value
+    assert chunk_count == 2
+    assert artifact_path.exists(), f"Physical artifact must exist at {artifact_path}"
+    assert db_session.query(DocumentChunk).filter(DocumentChunk.document_id == doc_id).count() == 2
+    assert db_session.query(IngestionJob).filter(IngestionJob.document_id == doc_id).count() >= 1
+
+    # Verify vectors exist in FAISS
+    vs = vector_store_module.vector_store
+    matching_vectors_before = 0
+    if vs is not None:
+        for _, docstore_id in vs.index_to_docstore_id.items():
+            stored_doc = vs.docstore.search(docstore_id)
+            if stored_doc and str(stored_doc.metadata.get("document_id")) == doc_id_str:
+                matching_vectors_before += 1
+    assert matching_vectors_before == 2, f"Expected 2 matching vectors before deletion, found {matching_vectors_before}"
+
+    # ACT: Delete the document
+    service.delete_document(doc_id)
+
+    # ASSERT POST-CONDITIONS (THE DELETION INVARIANT):
+    # 1. Document lookup is gone
+    with pytest.raises(DocumentNotFound):
+        service.get_document(doc_id)
+    assert db_session.query(Document).filter(Document.id == doc_id).first() is None
+
+    # 2. Document chunk count is zero
+    chunks_after = db_session.query(DocumentChunk).filter(DocumentChunk.document_id == doc_id).count()
+    assert chunks_after == 0, f"Expected 0 chunks remaining, found {chunks_after}"
+
+    # 3. Ingestion-job count is zero
+    jobs_after = db_session.query(IngestionJob).filter(IngestionJob.document_id == doc_id).count()
+    assert jobs_after == 0, f"Expected 0 ingestion jobs remaining, found {jobs_after}"
+
+    # 4. Physical artifact is absent
+    assert not artifact_path.exists(), f"Artifact must be deleted from disk: {artifact_path}"
+
+    # 5. Vectors are no longer retrievable / identifiable
+    if vs is not None:
+        for _, docstore_id in vs.index_to_docstore_id.items():
+            stored_doc = vs.docstore.search(docstore_id)
+            if stored_doc:
+                assert str(stored_doc.metadata.get("document_id")) != doc_id_str, (
+                    f"Vector for deleted document {doc_id} still found in FAISS docstore!"
+                )
+
+
+def test_high_value_vector_isolation(db_session, sample_workspace_and_user, tmp_path):
+    """
+    HIGH-VALUE ISOLATION TEST:
+    Create two separate documents with vectors.
+    Delete Document A.
+    Assert:
+    - Document A has no remaining vectors
+    - Document B still has all of its vectors
+    - deleting A does NOT clear the global FAISS store
+    - Document B remains retrievable through vector search
+    """
+    ws, _ = sample_workspace_and_user
+    service = DocumentService(db_session)
+
+    # Document A
+    pdf_a = tmp_path / "doc_a.pdf"
+    pdf_a.write_bytes(b"%PDF-1.4 content of Document A for isolation test")
+
+    # Document B
+    pdf_b = tmp_path / "doc_b.pdf"
+    pdf_b.write_bytes(b"%PDF-1.4 content of Document B quantum mechanics research")
+
+    with patch("backend.services.document_service.ingest_func") as mock_ingest:
+        # Ingest Document A
+        mock_ingest.return_value = [
+            LCDocument(
+                page_content="Document Alpha astronomy astrophysics space telescope",
+                metadata={"page": 1},
+            ),
+        ]
+        doc_a, _, _ = service.ingest_document(
+            workspace_id=ws.id,
+            file_path=pdf_a,
+            original_filename="doc_a.pdf",
+            file_size=len(pdf_a.read_bytes()),
+        )
+
+        # Ingest Document B
+        mock_ingest.return_value = [
+            LCDocument(
+                page_content="Document Beta quantum mechanics entanglement particle spin",
+                metadata={"page": 1},
+            ),
+        ]
+        doc_b, _, _ = service.ingest_document(
+            workspace_id=ws.id,
+            file_path=pdf_b,
+            original_filename="doc_b.pdf",
+            file_size=len(pdf_b.read_bytes()),
+        )
+
+    doc_a_id = doc_a.id
+    doc_b_id = doc_b.id
+    doc_a_str = str(doc_a_id)
+    doc_b_str = str(doc_b_id)
+
+    vs = vector_store_module.vector_store
+
+    try:
+        # Assert both documents exist in vector store
+        vectors_a_before = sum(
+            1 for _, doc_id in vs.index_to_docstore_id.items()
+            if vs.docstore.search(doc_id) and str(vs.docstore.search(doc_id).metadata.get("document_id")) == doc_a_str
+        )
+        vectors_b_before = sum(
+            1 for _, doc_id in vs.index_to_docstore_id.items()
+            if vs.docstore.search(doc_id) and str(vs.docstore.search(doc_id).metadata.get("document_id")) == doc_b_str
+        )
+        assert vectors_a_before == 1
+        assert vectors_b_before == 1
+
+        # ACT: Delete ONLY Document A with a spy/mock on clear_vector_store to verify it's never called
+        with patch("backend.services.document_service.delete_documents_by_document_id", wraps=delete_documents_by_document_id) as spy_delete:
+            service.delete_document(doc_a_id)
+            spy_delete.assert_called_once_with(doc_a_str)
+
+        # ASSERT:
+        # 1. Document A has no remaining vectors
+        vectors_a_after = sum(
+            1 for _, doc_id in vs.index_to_docstore_id.items()
+            if vs.docstore.search(doc_id) and str(vs.docstore.search(doc_id).metadata.get("document_id")) == doc_a_str
+        )
+        assert vectors_a_after == 0, f"Document A must have 0 vectors remaining, found {vectors_a_after}"
+
+        # 2. Document B still has all of its vectors
+        vectors_b_after = sum(
+            1 for _, doc_id in vs.index_to_docstore_id.items()
+            if vs.docstore.search(doc_id) and str(vs.docstore.search(doc_id).metadata.get("document_id")) == doc_b_str
+        )
+        assert vectors_b_after == 1, f"Document B must still have 1 vector, found {vectors_b_after}"
+
+        # 3. Document B remains retrievable through vector search
+        search_results = vs.similarity_search("quantum mechanics entanglement", k=5)
+        b_retrieved = any(
+            str(r.metadata.get("document_id")) == doc_b_str
+            for r in search_results
+        )
+        assert b_retrieved, "Document B should be retrievable through vector search after Document A deletion!"
+
+    finally:
+        # Clean up Document B
+        try:
+            service.delete_document(doc_b_id)
+        except Exception:
+            pass

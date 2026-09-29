@@ -54,7 +54,7 @@ def test_alembic_current_revision_is_head():
     heads = script.get_heads()
     assert len(heads) == 1
     head_rev = heads[0]
-    assert head_rev == "b56ab54c4f90"
+    assert head_rev == "6184867eb413"
 
     with engine.connect() as conn:
         ctx = MigrationContext.configure(conn)
@@ -108,7 +108,10 @@ def test_alembic_upgrade_downgrade_cycle_safe():
     }
     for stmt in expected_create_tables:
         assert stmt in up_sql, f"Missing DDL statement in upgrade: {stmt}"
-    assert f"INSERT INTO alembic_version (version_num) VALUES ('{head_rev}')" in up_sql
+    assert (
+        f"INSERT INTO alembic_version (version_num) VALUES ('{head_rev}')" in up_sql
+        or f"UPDATE alembic_version SET version_num='{head_rev}'" in up_sql
+    )
 
     # 2. Reversal migration (downgrade to base)
     buf_down = io.StringIO()
@@ -129,4 +132,7 @@ def test_alembic_upgrade_downgrade_cycle_safe():
     }
     for stmt in expected_drop_tables:
         assert stmt in down_sql, f"Missing DDL statement in downgrade: {stmt}"
-    assert f"DELETE FROM alembic_version WHERE alembic_version.version_num = '{head_rev}'" in down_sql
+    assert (
+        f"DELETE FROM alembic_version WHERE alembic_version.version_num = '{head_rev}'" in down_sql
+        or f"WHERE alembic_version.version_num = '{head_rev}'" in down_sql
+    )

@@ -121,15 +121,22 @@ def test_document_and_chunk_repositories(db_session):
     ws = w_repo.create(Workspace(id=uuid.uuid4(), name=f"Doc_WS_{uuid.uuid4().hex[:8]}"))
     db_session.commit()
 
+    doc_id = uuid.uuid4()
     doc = Document(
-        id=uuid.uuid4(),
+        id=doc_id,
         workspace_id=ws.id,
         filename="report.pdf",
+        display_name="report.pdf",
         original_filename="report.pdf",
         file_type="pdf",
+        mime_type="application/pdf",
         file_size=5000,
         page_count=2,
+        chunk_count=0,
+        storage_key=f"documents/{doc_id}/original/report.pdf",
+        checksum_sha256="fake_sha256",
         status="UPLOADED",
+        failure_reason=None,
     )
     d_repo.create(doc)
     db_session.commit()
@@ -228,16 +235,23 @@ def test_ingestion_job_repository(db_session):
     job_repo = IngestionJobRepository(db_session)
 
     ws = w_repo.create(Workspace(id=uuid.uuid4(), name=f"Job_WS_{uuid.uuid4().hex[:8]}"))
+    doc_id = uuid.uuid4()
     doc = d_repo.create(
         Document(
-            id=uuid.uuid4(),
+            id=doc_id,
             workspace_id=ws.id,
             filename="j.pdf",
+            display_name="j.pdf",
             original_filename="j.pdf",
             file_type="pdf",
+            mime_type="application/pdf",
             file_size=10,
             page_count=1,
+            chunk_count=0,
+            storage_key=f"documents/{doc_id}/original/j.pdf",
+            checksum_sha256="fake_sha256",
             status="PROCESSING",
+            failure_reason=None,
         )
     )
     db_session.commit()
@@ -277,17 +291,26 @@ def test_workspace_isolation_documents(db_session):
 
     try:
         # Create 2 docs in WS_A, 1 in WS_B
+        doc_a1_id = uuid.uuid4()
+        doc_a2_id = uuid.uuid4()
+        doc_b1_id = uuid.uuid4()
         doc_a1 = d_repo.create(Document(
-            id=uuid.uuid4(), workspace_id=ws_a.id, filename="a1.pdf", original_filename="a1.pdf",
-            file_type="pdf", file_size=100, page_count=1, status="INDEXED"
+            id=doc_a1_id, workspace_id=ws_a.id, filename="a1.pdf", original_filename="a1.pdf",
+            display_name="a1.pdf", file_type="pdf", mime_type="application/pdf", file_size=100,
+            page_count=1, chunk_count=1, storage_key=f"documents/{doc_a1_id}/original/a1.pdf",
+            checksum_sha256="fake_sha_a1", status="INDEXED", failure_reason=None,
         ))
         doc_a2 = d_repo.create(Document(
-            id=uuid.uuid4(), workspace_id=ws_a.id, filename="a2.pdf", original_filename="a2.pdf",
-            file_type="pdf", file_size=200, page_count=2, status="INDEXED"
+            id=doc_a2_id, workspace_id=ws_a.id, filename="a2.pdf", original_filename="a2.pdf",
+            display_name="a2.pdf", file_type="pdf", mime_type="application/pdf", file_size=200,
+            page_count=2, chunk_count=2, storage_key=f"documents/{doc_a2_id}/original/a2.pdf",
+            checksum_sha256="fake_sha_a2", status="INDEXED", failure_reason=None,
         ))
         doc_b1 = d_repo.create(Document(
-            id=uuid.uuid4(), workspace_id=ws_b.id, filename="b1.pdf", original_filename="b1.pdf",
-            file_type="pdf", file_size=300, page_count=3, status="INDEXED"
+            id=doc_b1_id, workspace_id=ws_b.id, filename="b1.pdf", original_filename="b1.pdf",
+            display_name="b1.pdf", file_type="pdf", mime_type="application/pdf", file_size=300,
+            page_count=3, chunk_count=3, storage_key=f"documents/{doc_b1_id}/original/b1.pdf",
+            checksum_sha256="fake_sha_b1", status="INDEXED", failure_reason=None,
         ))
         db_session.commit()
 
@@ -379,9 +402,12 @@ def test_foreign_key_delete_protection(db_session):
     ws = w_repo.create(Workspace(id=uuid.uuid4(), name=f"FK_Del_{uuid.uuid4().hex[:6]}"))
     db_session.commit()
 
+    doc_id = uuid.uuid4()
     doc = d_repo.create(Document(
-        id=uuid.uuid4(), workspace_id=ws.id, filename="fk.pdf", original_filename="fk.pdf",
-        file_type="pdf", file_size=50, page_count=1, status="INDEXED"
+        id=doc_id, workspace_id=ws.id, filename="fk.pdf", original_filename="fk.pdf",
+        display_name="fk.pdf", file_type="pdf", mime_type="application/pdf", file_size=50,
+        page_count=1, chunk_count=0, storage_key=f"documents/{doc_id}/original/fk.pdf",
+        checksum_sha256="fake_sha_fk", status="INDEXED", failure_reason=None,
     ))
     db_session.commit()
 
@@ -399,3 +425,262 @@ def test_foreign_key_delete_protection(db_session):
     finally:
         db_session.rollback()
 
+
+# ============================================================
+# V2.2 DOCUMENT REPOSITORY TESTS
+# ============================================================
+
+def test_document_repository_v2_2_create(db_session):
+    """Verify DocumentRepository creates and retrieves a document with all V2.2 fields."""
+    w_repo = WorkspaceRepository(db_session)
+    d_repo = DocumentRepository(db_session)
+
+    ws = w_repo.create(Workspace(id=uuid.uuid4(), name=f"V22_Create_WS_{uuid.uuid4().hex[:6]}"))
+    db_session.commit()
+
+    doc_id = uuid.uuid4()
+    doc = Document(
+        id=doc_id,
+        workspace_id=ws.id,
+        filename="research.pdf",
+        display_name="Research Paper V1",
+        original_filename="research_final.pdf",
+        file_type="pdf",
+        mime_type="application/pdf",
+        file_size=8192,
+        page_count=5,
+        chunk_count=12,
+        storage_key=f"documents/{doc_id}/original/research_final.pdf",
+        checksum_sha256="1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+        status="INDEXED",
+        failure_reason=None,
+    )
+
+    try:
+        created = d_repo.create(doc)
+        db_session.commit()
+
+        assert created.id == doc_id
+        found = d_repo.get_by_id(doc_id)
+        assert found is not None
+        assert found.display_name == "Research Paper V1"
+        assert found.original_filename == "research_final.pdf"
+        assert found.mime_type == "application/pdf"
+        assert found.chunk_count == 12
+        assert found.storage_key == f"documents/{doc_id}/original/research_final.pdf"
+        assert found.status == "INDEXED"
+    finally:
+        d_repo.delete(doc)
+        w_repo.delete(ws)
+        db_session.commit()
+
+
+def test_document_repository_v2_2_pagination_and_ordering(db_session):
+    """Verify document pagination, total count, and newest-first ordering."""
+    w_repo = WorkspaceRepository(db_session)
+    d_repo = DocumentRepository(db_session)
+
+    ws = w_repo.create(Workspace(id=uuid.uuid4(), name=f"V22_Page_WS_{uuid.uuid4().hex[:6]}"))
+    db_session.commit()
+
+    docs = []
+    try:
+        for i in range(5):
+            d_id = uuid.uuid4()
+            d = d_repo.create(Document(
+                id=d_id,
+                workspace_id=ws.id,
+                filename=f"doc_{i}.pdf",
+                display_name=f"Document {i}",
+                original_filename=f"doc_{i}.pdf",
+                file_type="pdf",
+                mime_type="application/pdf",
+                file_size=1024 * (i + 1),
+                page_count=i + 1,
+                chunk_count=(i + 1) * 2,
+                storage_key=f"documents/{d_id}/original/doc_{i}.pdf",
+                checksum_sha256=f"{i:064x}",
+                status="INDEXED",
+                failure_reason=None,
+            ))
+            docs.append(d)
+        db_session.commit()
+
+        # Count
+        assert d_repo.count_by_workspace(ws.id) == 5
+
+        # Page 1 (size 2)
+        page1 = d_repo.get_by_workspace_paginated(ws.id, skip=0, limit=2)
+        assert len(page1) == 2
+
+        # Page 2 (size 2)
+        page2 = d_repo.get_by_workspace_paginated(ws.id, skip=2, limit=2)
+        assert len(page2) == 2
+
+        # Page 3 (size 2) -> remainder 1
+        page3 = d_repo.get_by_workspace_paginated(ws.id, skip=4, limit=2)
+        assert len(page3) == 1
+
+        # Ordering: newest first (created_at desc)
+        all_paginated = d_repo.get_by_workspace_paginated(ws.id, skip=0, limit=10)
+        assert len(all_paginated) == 5
+        for j in range(len(all_paginated) - 1):
+            assert all_paginated[j].created_at >= all_paginated[j + 1].created_at
+
+    finally:
+        for d in docs:
+            d_repo.delete(d)
+        w_repo.delete(ws)
+        db_session.commit()
+
+
+def test_document_repository_v2_2_rename_and_update(db_session):
+    """Verify document rename/update persistence."""
+    w_repo = WorkspaceRepository(db_session)
+    d_repo = DocumentRepository(db_session)
+
+    ws = w_repo.create(Workspace(id=uuid.uuid4(), name=f"V22_Ren_WS_{uuid.uuid4().hex[:6]}"))
+    db_session.commit()
+
+    doc_id = uuid.uuid4()
+    doc = d_repo.create(Document(
+        id=doc_id,
+        workspace_id=ws.id,
+        filename="old_name.pdf",
+        display_name="Old Display Name",
+        original_filename="old_name.pdf",
+        file_type="pdf",
+        mime_type="application/pdf",
+        file_size=2048,
+        page_count=2,
+        chunk_count=4,
+        storage_key=f"documents/{doc_id}/original/old_name.pdf",
+        checksum_sha256="fake_sha_ren",
+        status="INDEXED",
+        failure_reason=None,
+    ))
+    db_session.commit()
+
+    try:
+        # Renaming updates display_name
+        doc.display_name = "My Research Notes"
+        if hasattr(d_repo, "update"):
+            d_repo.update(doc)
+        else:
+            db_session.flush()
+        db_session.commit()
+
+        updated = d_repo.get_by_id(doc_id)
+        assert updated.display_name == "My Research Notes"
+    finally:
+        d_repo.delete(doc)
+        w_repo.delete(ws)
+        db_session.commit()
+
+
+def test_document_chunk_cleanup_v2_2(db_session):
+    """Verify document chunk cleanup removes all chunks for a document."""
+    w_repo = WorkspaceRepository(db_session)
+    d_repo = DocumentRepository(db_session)
+    c_repo = DocumentChunkRepository(db_session)
+
+    ws = w_repo.create(Workspace(id=uuid.uuid4(), name=f"V22_Chunk_WS_{uuid.uuid4().hex[:6]}"))
+    db_session.commit()
+
+    doc_id = uuid.uuid4()
+    doc = d_repo.create(Document(
+        id=doc_id,
+        workspace_id=ws.id,
+        filename="chunked.pdf",
+        display_name="Chunked Doc",
+        original_filename="chunked.pdf",
+        file_type="pdf",
+        mime_type="application/pdf",
+        file_size=4096,
+        page_count=2,
+        chunk_count=3,
+        storage_key=f"documents/{doc_id}/original/chunked.pdf",
+        checksum_sha256="fake_sha_chunks",
+        status="INDEXED",
+        failure_reason=None,
+    ))
+    db_session.commit()
+
+    try:
+        chunks = [
+            DocumentChunk(
+                id=uuid.uuid4(),
+                document_id=doc_id,
+                chunk_index=i,
+                content=f"Content for chunk {i}",
+                page_number=1,
+            )
+            for i in range(3)
+        ]
+        c_repo.bulk_create(chunks)
+        db_session.commit()
+
+        assert c_repo.count_by_document(doc_id) == 3
+
+        # Cleanup chunks
+        for chunk in c_repo.get_by_document(doc_id):
+            c_repo.delete(chunk)
+        db_session.commit()
+
+        assert c_repo.count_by_document(doc_id) == 0
+        assert len(c_repo.get_by_document(doc_id)) == 0
+
+    finally:
+        d_repo.delete(doc)
+        w_repo.delete(ws)
+        db_session.commit()
+
+
+def test_ingestion_job_cleanup_v2_2(db_session):
+    """Verify ingestion job cleanup removes all jobs for a document."""
+    w_repo = WorkspaceRepository(db_session)
+    d_repo = DocumentRepository(db_session)
+    j_repo = IngestionJobRepository(db_session)
+
+    ws = w_repo.create(Workspace(id=uuid.uuid4(), name=f"V22_Job_WS_{uuid.uuid4().hex[:6]}"))
+    db_session.commit()
+
+    doc_id = uuid.uuid4()
+    doc = d_repo.create(Document(
+        id=doc_id,
+        workspace_id=ws.id,
+        filename="jobbed.pdf",
+        display_name="Jobbed Doc",
+        original_filename="jobbed.pdf",
+        file_type="pdf",
+        mime_type="application/pdf",
+        file_size=1024,
+        page_count=1,
+        chunk_count=0,
+        storage_key=f"documents/{doc_id}/original/jobbed.pdf",
+        checksum_sha256="fake_sha_jobs",
+        status="PROCESSING",
+        failure_reason=None,
+    ))
+    db_session.commit()
+
+    try:
+        job = IngestionJob(
+            id=uuid.uuid4(),
+            document_id=doc_id,
+            status="RUNNING",
+        )
+        j_repo.create(job)
+        db_session.commit()
+
+        assert j_repo.get_latest_by_document(doc_id) is not None
+
+        # Cleanup job
+        j_repo.delete(job)
+        db_session.commit()
+
+        assert j_repo.get_latest_by_document(doc_id) is None
+    finally:
+        d_repo.delete(doc)
+        w_repo.delete(ws)
+        db_session.commit()
