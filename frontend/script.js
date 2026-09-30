@@ -44,7 +44,9 @@
     var activeDocumentId = null;
     var isLoading = false;
     var currentWorkspaceId = null;
-    var activeView = "chat"; // "chat" | "docs"
+    var currentUserId = null;
+    var activeConversationId = null;
+    var activeView = "chat"; // "chat" | "docs" | "memory"
 
     // Document library state
     var docLibrary = {
@@ -55,6 +57,24 @@
         totalPages: 1,
         isLoading: false,
         pendingActionDoc: null
+    };
+
+    // Conversation state (Step 10)
+    var conversationLibrary = {
+        conversations: [],
+        isLoading: false,
+        pendingActionConv: null
+    };
+
+    // Memory state (Step 11)
+    var memoryLibrary = {
+        memories: [],
+        page: 1,
+        pageSize: 20,
+        total: 0,
+        totalPages: 1,
+        isLoading: false,
+        pendingDeleteMemory: null
     };
 
     // ── DOM References ──
@@ -75,9 +95,58 @@
     // Navigation & Views
     var navChatBtn = document.getElementById("navChatBtn");
     var navDocsBtn = document.getElementById("navDocsBtn");
+    var navMemoryBtn = document.getElementById("navMemoryBtn");
     var docsCountBadge = document.getElementById("docsCountBadge");
+    var memoriesCountBadge = document.getElementById("memoriesCountBadge");
     var docsSection = document.getElementById("docsSection");
+    var memorySection = document.getElementById("memorySection");
     var inputArea = document.getElementById("inputArea");
+
+    // Conversations DOM (Step 10)
+    var btnNewChat = document.getElementById("btnNewChat");
+    var convListContainer = document.getElementById("convListContainer");
+    var convList = document.getElementById("convList");
+
+    var convRenameModal = document.getElementById("convRenameModal");
+    var convRenameInput = document.getElementById("convRenameInput");
+    var convRenameCharCount = document.getElementById("convRenameCharCount");
+    var convRenameError = document.getElementById("convRenameError");
+    var convRenameCloseBtn = document.getElementById("convRenameCloseBtn");
+    var convRenameCancelBtn = document.getElementById("convRenameCancelBtn");
+    var convRenameSubmitBtn = document.getElementById("convRenameSubmitBtn");
+
+    var convDeleteModal = document.getElementById("convDeleteModal");
+    var deleteConvTitle = document.getElementById("deleteConvTitle");
+    var convDeleteCloseBtn = document.getElementById("convDeleteCloseBtn");
+    var convDeleteCancelBtn = document.getElementById("convDeleteCancelBtn");
+    var convDeleteConfirmBtn = document.getElementById("convDeleteConfirmBtn");
+
+    // Memory DOM (Step 11)
+    var memoriesRefreshBtn = document.getElementById("memoriesRefreshBtn");
+    var memoriesAddBtn = document.getElementById("memoriesAddBtn");
+    var metricTotalMemories = document.getElementById("metricTotalMemories");
+    var metricWorkspaceMemories = document.getElementById("metricWorkspaceMemories");
+    var metricPersonalMemories = document.getElementById("metricPersonalMemories");
+    var memoriesList = document.getElementById("memoriesList");
+    var memoriesPagination = document.getElementById("memoriesPagination");
+    var btnPrevMemPage = document.getElementById("btnPrevMemPage");
+    var btnNextMemPage = document.getElementById("btnNextMemPage");
+    var memPageIndicator = document.getElementById("memPageIndicator");
+
+    var memoryDeleteModal = document.getElementById("memoryDeleteModal");
+    var deleteMemoryPreview = document.getElementById("deleteMemoryPreview");
+    var memoryDeleteCloseBtn = document.getElementById("memoryDeleteCloseBtn");
+    var memoryDeleteCancelBtn = document.getElementById("memoryDeleteCancelBtn");
+    var memoryDeleteConfirmBtn = document.getElementById("memoryDeleteConfirmBtn");
+
+    var memoryAddModal = document.getElementById("memoryAddModal");
+    var memoryAddContent = document.getElementById("memoryAddContent");
+    var memoryAddType = document.getElementById("memoryAddType");
+    var memoryAddScope = document.getElementById("memoryAddScope");
+    var memoryAddError = document.getElementById("memoryAddError");
+    var memoryAddCloseBtn = document.getElementById("memoryAddCloseBtn");
+    var memoryAddCancelBtn = document.getElementById("memoryAddCancelBtn");
+    var memoryAddSubmitBtn = document.getElementById("memoryAddSubmitBtn");
 
     // Document Library DOM
     var docsUploadBtn = document.getElementById("docsUploadBtn");
@@ -122,6 +191,9 @@
     var COPY_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
     var CHECK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
     var PDF_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>';
+    var MESSAGE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
+    var EDIT_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>';
+    var TRASH_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
 
 
     // ────────────────────────────────────────
@@ -132,11 +204,25 @@
         setRandomGreeting();
         bindEvents();
         checkHealth();
-        ensureWorkspace().then(function () {
-            loadDocuments(1);
-        }).catch(function (e) {
-            console.warn("Workspace setup deferred:", e);
-        });
+
+        var urlParams = new URLSearchParams(window.location.search);
+        var initialConvId = urlParams.get("conversation_id");
+
+        ensureUser()
+            .then(ensureWorkspace)
+            .then(function () {
+                loadDocuments(1);
+                loadMemoriesCount();
+                return loadConversations();
+            })
+            .then(function () {
+                if (initialConvId) {
+                    selectConversation(initialConvId, true);
+                }
+            })
+            .catch(function (e) {
+                console.warn("Workspace setup deferred:", e);
+            });
     }
 
     function setRandomGreeting() {
@@ -145,8 +231,34 @@
     }
 
     // ────────────────────────────────────────
-    //  Workspace Resolution (V2.2)
+    //  User & Workspace Resolution
     // ────────────────────────────────────────
+
+    function ensureUser() {
+        if (currentUserId) {
+            return Promise.resolve(currentUserId);
+        }
+        var savedUserId = localStorage.getItem("rorak_user_id");
+
+        return fetch(API_BASE + "/users/default")
+            .then(function (res) {
+                if (!res.ok) throw new Error("Could not resolve default user (" + res.status + ")");
+                return res.json();
+            })
+            .then(function (user) {
+                currentUserId = user.id;
+                localStorage.setItem("rorak_user_id", currentUserId);
+                return currentUserId;
+            })
+            .catch(function (err) {
+                console.warn("Falling back for user resolution:", err);
+                if (savedUserId) {
+                    currentUserId = savedUserId;
+                    return currentUserId;
+                }
+                throw err;
+            });
+    }
 
     function ensureWorkspace() {
         if (currentWorkspaceId) {
@@ -171,10 +283,14 @@
                     return currentWorkspaceId;
                 }
                 // Create default workspace if none exists
+                var createPayload = { name: "Default Workspace" };
+                if (currentUserId) {
+                    createPayload.owner_id = currentUserId;
+                }
                 return fetch(API_BASE + "/workspaces/", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ name: "Default Workspace" })
+                    body: JSON.stringify(createPayload)
                 })
                     .then(function (r) { return r.json(); })
                     .then(function (ws) {
@@ -242,6 +358,78 @@
             });
         }
 
+        // Conversations events (Step 10)
+        if (btnNewChat) {
+            btnNewChat.addEventListener("click", function () {
+                startNewChat();
+                closeSidebar();
+            });
+        }
+
+        // Conversation Rename Modal
+        if (convRenameCloseBtn) convRenameCloseBtn.addEventListener("click", closeConvRenameModal);
+        if (convRenameCancelBtn) convRenameCancelBtn.addEventListener("click", closeConvRenameModal);
+        if (convRenameSubmitBtn) convRenameSubmitBtn.addEventListener("click", submitConvRename);
+        if (convRenameInput) {
+            convRenameInput.addEventListener("input", function () {
+                var len = convRenameInput.value.length;
+                if (convRenameCharCount) convRenameCharCount.textContent = len + " / 255";
+                if (convRenameError) convRenameError.style.display = "none";
+            });
+            convRenameInput.addEventListener("keydown", function (e) {
+                if (e.key === "Enter") {
+                    e.preventDefault();
+                    submitConvRename();
+                }
+            });
+        }
+
+        // Conversation Delete Modal
+        if (convDeleteCloseBtn) convDeleteCloseBtn.addEventListener("click", closeConvDeleteModal);
+        if (convDeleteCancelBtn) convDeleteCancelBtn.addEventListener("click", closeConvDeleteModal);
+        if (convDeleteConfirmBtn) convDeleteConfirmBtn.addEventListener("click", confirmConvDelete);
+
+        // Memory events (Step 11)
+        if (navMemoryBtn) {
+            navMemoryBtn.addEventListener("click", function (e) {
+                e.preventDefault();
+                switchView("memory");
+                closeSidebar();
+            });
+        }
+        if (memoriesRefreshBtn) {
+            memoriesRefreshBtn.addEventListener("click", function () {
+                loadMemories(memoryLibrary.page);
+            });
+        }
+        if (memoriesAddBtn) {
+            memoriesAddBtn.addEventListener("click", openMemoryAddModal);
+        }
+        if (btnPrevMemPage) {
+            btnPrevMemPage.addEventListener("click", function () {
+                if (memoryLibrary.page > 1) {
+                    loadMemories(memoryLibrary.page - 1);
+                }
+            });
+        }
+        if (btnNextMemPage) {
+            btnNextMemPage.addEventListener("click", function () {
+                if (memoryLibrary.page < memoryLibrary.totalPages) {
+                    loadMemories(memoryLibrary.page + 1);
+                }
+            });
+        }
+
+        // Memory Delete Modal
+        if (memoryDeleteCloseBtn) memoryDeleteCloseBtn.addEventListener("click", closeMemoryDeleteModal);
+        if (memoryDeleteCancelBtn) memoryDeleteCancelBtn.addEventListener("click", closeMemoryDeleteModal);
+        if (memoryDeleteConfirmBtn) memoryDeleteConfirmBtn.addEventListener("click", confirmDeleteMemory);
+
+        // Memory Add Modal
+        if (memoryAddCloseBtn) memoryAddCloseBtn.addEventListener("click", closeMemoryAddModal);
+        if (memoryAddCancelBtn) memoryAddCancelBtn.addEventListener("click", closeMemoryAddModal);
+        if (memoryAddSubmitBtn) memoryAddSubmitBtn.addEventListener("click", submitAddMemory);
+
         // Document Library header actions
         if (docsUploadBtn) {
             docsUploadBtn.addEventListener("click", function () {
@@ -298,13 +486,32 @@
         if (docDeleteConfirmBtn) docDeleteConfirmBtn.addEventListener("click", confirmDelete);
 
         // Backdrop click to close modals
-        [docDetailsModal, docRenameModal, docDeleteModal].forEach(function (modal) {
+        [
+            docDetailsModal,
+            docRenameModal,
+            docDeleteModal,
+            convRenameModal,
+            convDeleteModal,
+            memoryDeleteModal,
+            memoryAddModal
+        ].forEach(function (modal) {
             if (modal) {
                 modal.addEventListener("click", function (e) {
                     if (e.target === modal) {
                         modal.style.display = "none";
                     }
                 });
+            }
+        });
+
+        // Browser navigation history restoration (Back / Forward)
+        window.addEventListener("popstate", function (e) {
+            var urlParams = new URLSearchParams(window.location.search);
+            var convId = urlParams.get("conversation_id");
+            if (convId) {
+                selectConversation(convId, true);
+            } else {
+                startNewChat(true);
             }
         });
 
@@ -333,8 +540,10 @@
         if (view === "chat") {
             if (navChatBtn) navChatBtn.classList.add("active");
             if (navDocsBtn) navDocsBtn.classList.remove("active");
+            if (navMemoryBtn) navMemoryBtn.classList.remove("active");
 
             if (docsSection) docsSection.style.display = "none";
+            if (memorySection) memorySection.style.display = "none";
             if (inputArea) inputArea.style.display = "";
 
             if (messages.length === 0) {
@@ -355,14 +564,29 @@
         } else if (view === "docs") {
             if (navDocsBtn) navDocsBtn.classList.add("active");
             if (navChatBtn) navChatBtn.classList.remove("active");
+            if (navMemoryBtn) navMemoryBtn.classList.remove("active");
 
             if (mainArea) mainArea.classList.remove("is-empty");
             if (emptyState) emptyState.style.display = "none";
             if (chatMessages) chatMessages.style.display = "none";
             if (inputArea) inputArea.style.display = "none";
 
+            if (memorySection) memorySection.style.display = "none";
             if (docsSection) docsSection.style.display = "flex";
             loadDocuments(docLibrary.page);
+        } else if (view === "memory") {
+            if (navMemoryBtn) navMemoryBtn.classList.add("active");
+            if (navChatBtn) navChatBtn.classList.remove("active");
+            if (navDocsBtn) navDocsBtn.classList.remove("active");
+
+            if (mainArea) mainArea.classList.remove("is-empty");
+            if (emptyState) emptyState.style.display = "none";
+            if (chatMessages) chatMessages.style.display = "none";
+            if (inputArea) inputArea.style.display = "none";
+
+            if (docsSection) docsSection.style.display = "none";
+            if (memorySection) memorySection.style.display = "flex";
+            loadMemories(memoryLibrary.page);
         }
     }
 
@@ -985,7 +1209,649 @@
 
 
     // ────────────────────────────────────────
-    //  Chat Logic (Preserved V1 Experience)
+    //  Step 10 — Conversation Experience
+    // ────────────────────────────────────────
+
+    function loadConversations() {
+        conversationLibrary.isLoading = true;
+        if (convList && conversationLibrary.conversations.length === 0) {
+            convList.innerHTML = '<div class="conv-loading-state">Loading chats…</div>';
+        }
+
+        return ensureWorkspace()
+            .then(function (wsId) {
+                var url = API_BASE + "/conversations/?workspace_id=" + encodeURIComponent(wsId) + "&page=1&page_size=50";
+                return fetch(url);
+            })
+            .then(function (res) {
+                if (!res.ok) throw new Error("Failed to load conversations (" + res.status + ")");
+                return res.json();
+            })
+            .then(function (data) {
+                conversationLibrary.conversations = data.conversations || [];
+                renderConversationList();
+                return conversationLibrary.conversations;
+            })
+            .catch(function (err) {
+                console.error("Conversation load error:", err);
+                if (convList) {
+                    convList.innerHTML =
+                        '<div class="conv-error-state">' +
+                            '<p style="color:#f87171;">Could not load chats.</p>' +
+                            '<button class="btn-secondary" id="btnRetryConvs">Retry</button>' +
+                        '</div>';
+                    var retryBtn = document.getElementById("btnRetryConvs");
+                    if (retryBtn) retryBtn.addEventListener("click", loadConversations);
+                }
+            })
+            .finally(function () {
+                conversationLibrary.isLoading = false;
+            });
+    }
+
+    function renderConversationList() {
+        if (!convList) return;
+
+        if (conversationLibrary.conversations.length === 0) {
+            convList.innerHTML = '<div class="conv-empty-state">No conversations yet</div>';
+            return;
+        }
+
+        convList.innerHTML = "";
+        conversationLibrary.conversations.forEach(function (conv) {
+            var item = document.createElement("div");
+            item.className = "conv-item" + (conv.id === activeConversationId ? " active" : "");
+            item.dataset.id = conv.id;
+
+            var left = document.createElement("div");
+            left.className = "conv-item-left";
+            left.innerHTML = '<span class="conv-icon">' + MESSAGE_ICON + '</span>' +
+                '<span class="conv-title" title="' + escapeHtml(conv.title) + '">' + escapeHtml(conv.title) + '</span>';
+            item.appendChild(left);
+
+            var actions = document.createElement("div");
+            actions.className = "conv-actions";
+
+            var renameBtn = document.createElement("button");
+            renameBtn.className = "conv-action-btn";
+            renameBtn.title = "Rename conversation";
+            renameBtn.innerHTML = EDIT_ICON;
+            renameBtn.addEventListener("click", function (e) {
+                e.stopPropagation();
+                openConvRenameModal(conv);
+            });
+            actions.appendChild(renameBtn);
+
+            var deleteBtn = document.createElement("button");
+            deleteBtn.className = "conv-action-btn action-delete";
+            deleteBtn.title = "Delete conversation";
+            deleteBtn.innerHTML = TRASH_ICON;
+            deleteBtn.addEventListener("click", function (e) {
+                e.stopPropagation();
+                openConvDeleteModal(conv);
+            });
+            actions.appendChild(deleteBtn);
+
+            item.appendChild(actions);
+
+            item.addEventListener("click", function () {
+                selectConversation(conv.id);
+            });
+
+            convList.appendChild(item);
+        });
+    }
+
+    function selectConversation(convId, skipHistoryPush) {
+        if (activeConversationId === convId && activeView === "chat") {
+            return;
+        }
+        activeConversationId = convId;
+
+        if (!skipHistoryPush) {
+            var url = new URL(window.location);
+            url.searchParams.set("conversation_id", convId);
+            window.history.pushState({ conversation_id: convId }, "", url);
+        }
+
+        switchView("chat");
+        renderConversationList();
+        closeSidebar();
+        loadConversationMessages(convId);
+    }
+
+    function startNewChat(skipHistoryPush) {
+        activeConversationId = null;
+        messages = [];
+        if (chatMessages) {
+            chatMessages.innerHTML = "";
+            chatMessages.style.display = "none";
+            chatMessages.classList.remove("active");
+        }
+
+        if (!skipHistoryPush) {
+            var url = new URL(window.location);
+            url.searchParams.delete("conversation_id");
+            window.history.pushState({}, "", url);
+        }
+
+        renderConversationList();
+        switchView("chat");
+        setRandomGreeting();
+        if (chatInput) chatInput.focus();
+    }
+
+    function loadConversationMessages(convId) {
+        if (!chatMessages) return;
+
+        chatMessages.innerHTML =
+            '<div class="chat-loading-history">' +
+                '<div class="loading-dots"><span></span><span></span><span></span></div>' +
+                '<span>Restoring conversation history…</span>' +
+            '</div>';
+        chatMessages.style.display = "";
+        chatMessages.classList.add("active");
+        if (emptyState) emptyState.style.display = "none";
+        if (mainArea) mainArea.classList.remove("is-empty");
+
+        ensureWorkspace().then(function (wsId) {
+            var url = API_BASE + "/conversations/" + encodeURIComponent(convId) + "/messages?workspace_id=" + encodeURIComponent(wsId) + "&page=1&page_size=100";
+            return fetch(url);
+        })
+            .then(function (res) {
+                if (res.status === 404) {
+                    // Deleted conversation state: gracefully recover
+                    showNotification("This conversation no longer exists or was deleted.");
+                    startNewChat(false);
+                    loadConversations();
+                    return null;
+                }
+                if (!res.ok) throw new Error("Failed to load messages (" + res.status + ")");
+                return res.json();
+            })
+            .then(function (data) {
+                if (!data) return;
+                chatMessages.innerHTML = "";
+                messages = [];
+                var list = data.messages || [];
+                if (list.length === 0) {
+                    if (mainArea) mainArea.classList.add("is-empty");
+                    if (emptyState) emptyState.style.display = "";
+                    chatMessages.style.display = "none";
+                    return;
+                }
+
+                list.forEach(function (msg) {
+                    messages.push({ role: msg.role, content: msg.content });
+                    renderMessage(msg.role, msg.content, formatDate(msg.created_at, true), true);
+                });
+                scrollToBottom();
+            })
+            .catch(function (err) {
+                console.error("Messages load error:", err);
+                chatMessages.innerHTML =
+                    '<div class="conv-error-state">' +
+                        '<p style="color:#f87171;">Failed to load messages.</p>' +
+                        '<button class="btn-secondary" id="btnRetryMessages">Retry</button>' +
+                    '</div>';
+                var retryBtn = document.getElementById("btnRetryMessages");
+                if (retryBtn) {
+                    retryBtn.addEventListener("click", function () {
+                        loadConversationMessages(convId);
+                    });
+                }
+            });
+    }
+
+    function openConvRenameModal(conv) {
+        conversationLibrary.pendingActionConv = conv;
+        if (!convRenameModal || !convRenameInput) return;
+        convRenameInput.value = conv.title || "";
+        if (convRenameCharCount) convRenameCharCount.textContent = (conv.title || "").length + " / 255";
+        if (convRenameError) convRenameError.style.display = "none";
+        convRenameModal.style.display = "flex";
+        setTimeout(function () { convRenameInput.focus(); }, 100);
+    }
+
+    function closeConvRenameModal() {
+        if (convRenameModal) convRenameModal.style.display = "none";
+        conversationLibrary.pendingActionConv = null;
+    }
+
+    function submitConvRename() {
+        var conv = conversationLibrary.pendingActionConv;
+        if (!conv || !convRenameInput) return;
+
+        var newTitle = convRenameInput.value.trim();
+        if (!newTitle) {
+            showConvRenameError("Title cannot be empty.");
+            return;
+        }
+        if (newTitle.length > 255) {
+            showConvRenameError("Title exceeds 255 characters.");
+            return;
+        }
+
+        if (convRenameSubmitBtn) {
+            convRenameSubmitBtn.disabled = true;
+            convRenameSubmitBtn.textContent = "Saving…";
+        }
+
+        ensureWorkspace().then(function (wsId) {
+            var url = API_BASE + "/conversations/" + encodeURIComponent(conv.id) + "?workspace_id=" + encodeURIComponent(wsId);
+            return fetch(url, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ title: newTitle })
+            });
+        })
+            .then(function (res) {
+                if (!res.ok) throw new Error("Failed to rename conversation (" + res.status + ")");
+                return res.json();
+            })
+            .then(function (updated) {
+                closeConvRenameModal();
+                showNotification("Conversation renamed.");
+                setTimeout(hideNotification, 2500);
+
+                var idx = conversationLibrary.conversations.findIndex(function (c) { return c.id === conv.id; });
+                if (idx !== -1) {
+                    conversationLibrary.conversations[idx].title = updated.title;
+                }
+                renderConversationList();
+            })
+            .catch(function (err) {
+                showConvRenameError(err.message || "Failed to rename conversation.");
+            })
+            .finally(function () {
+                if (convRenameSubmitBtn) {
+                    convRenameSubmitBtn.disabled = false;
+                    convRenameSubmitBtn.textContent = "Save";
+                }
+            });
+    }
+
+    function showConvRenameError(msg) {
+        if (!convRenameError) return;
+        convRenameError.textContent = msg;
+        convRenameError.style.display = "block";
+    }
+
+    function openConvDeleteModal(conv) {
+        conversationLibrary.pendingActionConv = conv;
+        if (!convDeleteModal || !deleteConvTitle) return;
+        deleteConvTitle.textContent = '"' + (conv.title || "this conversation") + '"';
+        convDeleteModal.style.display = "flex";
+    }
+
+    function closeConvDeleteModal() {
+        if (convDeleteModal) convDeleteModal.style.display = "none";
+        conversationLibrary.pendingActionConv = null;
+    }
+
+    function confirmConvDelete() {
+        var conv = conversationLibrary.pendingActionConv;
+        if (!conv) return;
+
+        if (convDeleteConfirmBtn) {
+            convDeleteConfirmBtn.disabled = true;
+            convDeleteConfirmBtn.textContent = "Deleting…";
+        }
+
+        ensureWorkspace().then(function (wsId) {
+            var url = API_BASE + "/conversations/" + encodeURIComponent(conv.id) + "?workspace_id=" + encodeURIComponent(wsId);
+            return fetch(url, { method: "DELETE" });
+        })
+            .then(function (res) {
+                if (!res.ok && res.status !== 200 && res.status !== 204) {
+                    throw new Error("Failed to delete conversation (" + res.status + ")");
+                }
+                closeConvDeleteModal();
+                showNotification("Conversation deleted.");
+                setTimeout(hideNotification, 2500);
+
+                if (activeConversationId === conv.id) {
+                    startNewChat();
+                }
+                return loadConversations();
+            })
+            .catch(function (err) {
+                showNotification("Delete failed: " + (err.message || err));
+            })
+            .finally(function () {
+                if (convDeleteConfirmBtn) {
+                    convDeleteConfirmBtn.disabled = false;
+                    convDeleteConfirmBtn.textContent = "Delete Permanently";
+                }
+            });
+    }
+
+
+    // ────────────────────────────────────────
+    //  Step 11 — Memory UI Experience
+    // ────────────────────────────────────────
+
+    function loadMemoriesCount() {
+        return ensureUser().then(function (userId) {
+            return ensureWorkspace().then(function (wsId) {
+                var url = API_BASE + "/memories/?user_id=" + encodeURIComponent(userId) +
+                    "&workspace_id=" + encodeURIComponent(wsId) +
+                    "&page=1&page_size=1";
+                return fetch(url);
+            });
+        })
+            .then(function (res) {
+                if (!res.ok) return null;
+                return res.json();
+            })
+            .then(function (data) {
+                if (data && data.pagination && memoriesCountBadge) {
+                    memoriesCountBadge.textContent = data.pagination.total;
+                }
+            })
+            .catch(function (e) {
+                console.warn("Memories count load error:", e);
+            });
+    }
+
+    function loadMemories(page) {
+        memoryLibrary.isLoading = true;
+        memoryLibrary.page = page || 1;
+
+        if (memoriesList && memoryLibrary.memories.length === 0) {
+            memoriesList.innerHTML = '<div class="docs-loading-state"><p>Loading memories…</p></div>';
+        }
+
+        ensureUser().then(function (userId) {
+            return ensureWorkspace().then(function (wsId) {
+                var url = API_BASE + "/memories/?user_id=" + encodeURIComponent(userId) +
+                    "&workspace_id=" + encodeURIComponent(wsId) +
+                    "&include_global=true" +
+                    "&page=" + encodeURIComponent(memoryLibrary.page) +
+                    "&page_size=" + encodeURIComponent(memoryLibrary.pageSize);
+                return fetch(url);
+            });
+        })
+            .then(function (res) {
+                if (!res.ok) throw new Error("Failed to load memories (" + res.status + ")");
+                return res.json();
+            })
+            .then(function (data) {
+                memoryLibrary.memories = data.memories || [];
+                if (data.pagination) {
+                    memoryLibrary.total = data.pagination.total;
+                    memoryLibrary.totalPages = Math.max(1, data.pagination.total_pages);
+                } else {
+                    memoryLibrary.total = memoryLibrary.memories.length;
+                    memoryLibrary.totalPages = 1;
+                }
+                if (memoriesCountBadge) {
+                    memoriesCountBadge.textContent = memoryLibrary.total;
+                }
+                renderMemoryList();
+                updateMemoryMetrics();
+            })
+            .catch(function (err) {
+                console.error("Memories load error:", err);
+                if (memoriesList) {
+                    memoriesList.innerHTML =
+                        '<div class="docs-error-state">' +
+                            '<p style="color:#f87171;">Failed to load memories.</p>' +
+                            '<button class="btn-secondary" id="btnRetryMemories">Retry</button>' +
+                        '</div>';
+                    var retryBtn = document.getElementById("btnRetryMemories");
+                    if (retryBtn) {
+                        retryBtn.addEventListener("click", function () {
+                            loadMemories(memoryLibrary.page);
+                        });
+                    }
+                }
+            })
+            .finally(function () {
+                memoryLibrary.isLoading = false;
+            });
+    }
+
+    function updateMemoryMetrics() {
+        if (metricTotalMemories) metricTotalMemories.textContent = memoryLibrary.total;
+        var wsCount = memoryLibrary.memories.filter(function (m) { return m.workspace_id !== null && m.workspace_id !== undefined; }).length;
+        var personalCount = memoryLibrary.memories.filter(function (m) { return m.workspace_id === null || m.workspace_id === undefined; }).length;
+        if (metricWorkspaceMemories) metricWorkspaceMemories.textContent = wsCount;
+        if (metricPersonalMemories) metricPersonalMemories.textContent = personalCount;
+    }
+
+    function renderMemoryList() {
+        if (!memoriesList) return;
+
+        if (memoryLibrary.memories.length === 0) {
+            memoriesList.innerHTML =
+                '<div class="docs-empty-state">' +
+                    '<div class="docs-empty-icon">' +
+                        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' +
+                            '<path d="M12 2a5 5 0 0 1 5 5v1a5 5 0 0 1-10 0V7a5 5 0 0 1 5-5z"></path>' +
+                            '<path d="M19 11v1a7 7 0 0 1-14 0v-1"></path>' +
+                            '<line x1="12" y1="19" x2="12" y2="22"></line>' +
+                            '<line x1="8" y1="22" x2="16" y2="22"></line>' +
+                        '</svg>' +
+                    '</div>' +
+                    '<h3 class="docs-empty-title">No memories stored yet</h3>' +
+                    '<p class="docs-empty-desc">Rorak AI captures user preferences and workspace facts to assemble rich context during chat conversations.</p>' +
+                    '<button class="btn-primary" id="btnEmptyAddMem">' +
+                        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+                            '<line x1="12" y1="5" x2="12" y2="19"></line>' +
+                            '<line x1="5" y1="12" x2="19" y2="12"></line>' +
+                        '</svg>' +
+                        'Add First Memory' +
+                    '</button>' +
+                '</div>';
+
+            var emptyAddBtn = document.getElementById("btnEmptyAddMem");
+            if (emptyAddBtn) emptyAddBtn.addEventListener("click", openMemoryAddModal);
+            if (memoriesPagination) memoriesPagination.style.display = "none";
+            return;
+        }
+
+        memoriesList.innerHTML = "";
+        memoryLibrary.memories.forEach(function (mem) {
+            var card = createMemoryCard(mem);
+            memoriesList.appendChild(card);
+        });
+
+        // Pagination
+        if (memoriesPagination) {
+            if (memoryLibrary.totalPages > 1) {
+                memoriesPagination.style.display = "flex";
+                if (memPageIndicator) {
+                    memPageIndicator.textContent = "Page " + memoryLibrary.page + " of " + memoryLibrary.totalPages;
+                }
+                if (btnPrevMemPage) btnPrevMemPage.disabled = (memoryLibrary.page <= 1);
+                if (btnNextMemPage) btnNextMemPage.disabled = (memoryLibrary.page >= memoryLibrary.totalPages);
+            } else {
+                memoriesPagination.style.display = "none";
+            }
+        }
+    }
+
+    function createMemoryCard(mem) {
+        var card = document.createElement("div");
+        card.className = "memory-card";
+        card.dataset.id = mem.id;
+
+        var top = document.createElement("div");
+        top.className = "memory-card-top";
+
+        var badges = document.createElement("div");
+        badges.className = "memory-card-badges";
+
+        var isWs = (mem.workspace_id !== null && mem.workspace_id !== undefined);
+        var scopeBadge = document.createElement("span");
+        scopeBadge.className = isWs ? "badge-scope-workspace" : "badge-scope-user";
+        scopeBadge.textContent = isWs ? "Workspace Scope" : "Personal Scope";
+        badges.appendChild(scopeBadge);
+
+        var typeBadge = document.createElement("span");
+        typeBadge.className = "badge-type";
+        typeBadge.textContent = formatMemoryType(mem.memory_type);
+        badges.appendChild(typeBadge);
+
+        top.appendChild(badges);
+
+        var deleteBtn = document.createElement("button");
+        deleteBtn.className = "btn-doc-action action-delete";
+        deleteBtn.title = "Delete Memory";
+        deleteBtn.innerHTML = TRASH_ICON + "<span>Delete</span>";
+        deleteBtn.addEventListener("click", function () {
+            openMemoryDeleteModal(mem);
+        });
+        top.appendChild(deleteBtn);
+
+        card.appendChild(top);
+
+        var contentBox = document.createElement("div");
+        contentBox.className = "memory-content-box";
+        contentBox.textContent = mem.content;
+        card.appendChild(contentBox);
+
+        var footer = document.createElement("div");
+        footer.className = "memory-card-footer";
+        var dateEl = document.createElement("span");
+        dateEl.textContent = "Added " + formatDate(mem.created_at, true);
+        footer.appendChild(dateEl);
+        card.appendChild(footer);
+
+        return card;
+    }
+
+    function formatMemoryType(typeStr) {
+        if (!typeStr) return "Directive";
+        return typeStr
+            .split("_")
+            .map(function (w) { return w.charAt(0).toUpperCase() + w.slice(1); })
+            .join(" ");
+    }
+
+    function openMemoryDeleteModal(mem) {
+        memoryLibrary.pendingDeleteMemory = mem;
+        if (!memoryDeleteModal || !deleteMemoryPreview) return;
+        deleteMemoryPreview.textContent = '"' + mem.content + '"';
+        memoryDeleteModal.style.display = "flex";
+    }
+
+    function closeMemoryDeleteModal() {
+        if (memoryDeleteModal) memoryDeleteModal.style.display = "none";
+        memoryLibrary.pendingDeleteMemory = null;
+    }
+
+    function confirmDeleteMemory() {
+        var mem = memoryLibrary.pendingDeleteMemory;
+        if (!mem) return;
+
+        if (memoryDeleteConfirmBtn) {
+            memoryDeleteConfirmBtn.disabled = true;
+            memoryDeleteConfirmBtn.textContent = "Deleting…";
+        }
+
+        ensureUser().then(function (userId) {
+            return ensureWorkspace().then(function (wsId) {
+                var url = API_BASE + "/memories/" + encodeURIComponent(mem.id) +
+                    "?user_id=" + encodeURIComponent(userId) +
+                    "&workspace_id=" + encodeURIComponent(wsId);
+                return fetch(url, { method: "DELETE" });
+            });
+        })
+            .then(function (res) {
+                if (!res.ok && res.status !== 200 && res.status !== 204) {
+                    throw new Error("Failed to delete memory (" + res.status + ")");
+                }
+                closeMemoryDeleteModal();
+                showNotification("Memory deleted.");
+                setTimeout(hideNotification, 2500);
+                loadMemories(memoryLibrary.page);
+            })
+            .catch(function (err) {
+                showNotification("Delete memory failed: " + (err.message || err));
+            })
+            .finally(function () {
+                if (memoryDeleteConfirmBtn) {
+                    memoryDeleteConfirmBtn.disabled = false;
+                    memoryDeleteConfirmBtn.textContent = "Delete Permanently";
+                }
+            });
+    }
+
+    function openMemoryAddModal() {
+        if (!memoryAddModal || !memoryAddContent) return;
+        memoryAddContent.value = "";
+        if (memoryAddError) memoryAddError.style.display = "none";
+        memoryAddModal.style.display = "flex";
+        setTimeout(function () { memoryAddContent.focus(); }, 100);
+    }
+
+    function closeMemoryAddModal() {
+        if (memoryAddModal) memoryAddModal.style.display = "none";
+    }
+
+    function submitAddMemory() {
+        if (!memoryAddContent) return;
+        var content = memoryAddContent.value.trim();
+        if (!content) {
+            if (memoryAddError) {
+                memoryAddError.textContent = "Content cannot be empty.";
+                memoryAddError.style.display = "block";
+            }
+            return;
+        }
+
+        var type = memoryAddType ? memoryAddType.value : "system_directive";
+        var scope = memoryAddScope ? memoryAddScope.value : "workspace";
+
+        if (memoryAddSubmitBtn) {
+            memoryAddSubmitBtn.disabled = true;
+            memoryAddSubmitBtn.textContent = "Saving…";
+        }
+
+        ensureUser().then(function (userId) {
+            return ensureWorkspace().then(function (wsId) {
+                var payload = {
+                    user_id: userId,
+                    content: content,
+                    memory_type: type,
+                    workspace_id: (scope === "workspace" ? wsId : null)
+                };
+                return fetch(API_BASE + "/memories/", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+            });
+        })
+            .then(function (res) {
+                if (!res.ok) throw new Error("Failed to save memory (" + res.status + ")");
+                return res.json();
+            })
+            .then(function () {
+                closeMemoryAddModal();
+                showNotification("Memory saved.");
+                setTimeout(hideNotification, 2500);
+                loadMemories(1);
+            })
+            .catch(function (err) {
+                if (memoryAddError) {
+                    memoryAddError.textContent = err.message || "Failed to save memory.";
+                    memoryAddError.style.display = "block";
+                }
+            })
+            .finally(function () {
+                if (memoryAddSubmitBtn) {
+                    memoryAddSubmitBtn.disabled = false;
+                    memoryAddSubmitBtn.textContent = "Save Memory";
+                }
+            });
+    }
+
+
+    // ────────────────────────────────────────
+    //  Chat Logic (Preserved V1 Experience & Continuity)
     // ────────────────────────────────────────
 
     function handleSend() {
@@ -1016,10 +1882,23 @@
         var MAX_RETRIES = 2;
         var RETRY_DELAYS = [1000, 2000];
 
-        fetch(API_BASE + "/chat/", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ question: question })
+        ensureUser().then(function (userId) {
+            return ensureWorkspace().then(function (wsId) {
+                var payload = {
+                    question: question,
+                    workspace_id: wsId,
+                    user_id: userId
+                };
+                if (activeConversationId) {
+                    payload.conversation_id = activeConversationId;
+                }
+
+                return fetch(API_BASE + "/chat/", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+            });
         })
             .then(function (res) {
                 return res.json().then(function (data) {
@@ -1034,6 +1913,13 @@
             .then(function (data) {
                 removeLoadingDots(loadingId);
                 hideNotification();
+                if (!activeConversationId && data.conversation_id) {
+                    activeConversationId = data.conversation_id;
+                    var url = new URL(window.location);
+                    url.searchParams.set("conversation_id", activeConversationId);
+                    window.history.replaceState({ conversation_id: activeConversationId }, "", url);
+                    loadConversations();
+                }
                 addMessage("assistant", data.answer);
                 finishChat();
             })
@@ -1065,8 +1951,11 @@
 
     function addMessage(role, content) {
         messages.push({ role: role, content: content });
+        renderMessage(role, content, getCurrentTime(), false);
+    }
 
-        if (messages.length === 1 && activeView === "chat") {
+    function renderMessage(role, content, timestamp, skipAutoScroll) {
+        if (activeView === "chat") {
             if (mainArea) mainArea.classList.remove("is-empty");
             if (emptyState) emptyState.style.display = "none";
             if (chatMessages) {
@@ -1106,7 +1995,7 @@
 
             var timeEl = document.createElement("span");
             timeEl.className = "message-time";
-            timeEl.textContent = getCurrentTime();
+            timeEl.textContent = timestamp || getCurrentTime();
             footerEl.appendChild(timeEl);
 
             var copyBtn = document.createElement("button");
@@ -1121,8 +2010,8 @@
             msgEl.appendChild(footerEl);
         }
 
-        chatMessages.appendChild(msgEl);
-        scrollToBottom();
+        if (chatMessages) chatMessages.appendChild(msgEl);
+        if (!skipAutoScroll) scrollToBottom();
     }
 
     function formatContent(text, role) {

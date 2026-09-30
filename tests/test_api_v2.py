@@ -559,3 +559,80 @@ def test_step_9_conversation_api_contract(setup_user_and_workspace):
     # 404 after deletion
     resp_reopen_deleted = client.get(f"/conversations/{conv_id}")
     assert resp_reopen_deleted.status_code == 404
+
+
+def test_step_10_and_11_frontend_contracts(setup_user_and_workspace):
+    """
+    Step 10 & 11 — End-to-end backend contract support for frontend experience:
+    - Default user provisioning
+    - Conversation lifecycle with message history deterministic restore
+    - Memory list with scope isolation and individual deletion
+    """
+    ws, user = setup_user_and_workspace
+
+    # 1. Default user endpoint works
+    resp_user = client.get("/users/default")
+    assert resp_user.status_code == 200
+    default_user_data = resp_user.json()
+    assert "id" in default_user_data
+    assert default_user_data["email"] == "default@rorak.tech"
+
+    # 2. Step 10: Create conversation thread
+    resp_conv = client.post(
+        "/conversations/",
+        json={
+            "workspace_id": str(ws.id),
+            "user_id": str(user.id),
+            "title": "Initial Frontend Thread",
+        },
+    )
+    assert resp_conv.status_code == 201
+    conv_id = resp_conv.json()["id"]
+
+    # 3. Add message to thread
+    resp_msg = client.post(
+        f"/conversations/{conv_id}/messages",
+        json={"role": "user", "content": "Hello Rorak!"},
+    )
+    assert resp_msg.status_code == 201
+
+    # 4. Fetch messages deterministic history
+    resp_messages = client.get(f"/conversations/{conv_id}/messages?workspace_id={ws.id}")
+    assert resp_messages.status_code == 200
+    msg_data = resp_messages.json()
+    assert msg_data["pagination"]["total"] >= 1
+    assert msg_data["messages"][0]["content"] == "Hello Rorak!"
+
+    # 5. Rename conversation
+    resp_rename = client.patch(
+        f"/conversations/{conv_id}?workspace_id={ws.id}",
+        json={"title": "Renamed Frontend Thread"},
+    )
+    assert resp_rename.status_code == 200
+    assert resp_rename.json()["title"] == "Renamed Frontend Thread"
+
+    # 6. Step 11: Create memory and verify scope
+    resp_mem = client.post(
+        "/memories/",
+        json={
+            "user_id": str(user.id),
+            "workspace_id": str(ws.id),
+            "content": "User prefers concise answers",
+            "memory_type": "user_preference",
+        },
+    )
+    assert resp_mem.status_code == 201
+    mem_id = resp_mem.json()["id"]
+    assert resp_mem.json()["workspace_id"] == str(ws.id)
+
+    # 7. List memories with scope
+    resp_mem_list = client.get(f"/memories/?user_id={user.id}&workspace_id={ws.id}&include_global=true")
+    assert resp_mem_list.status_code == 200
+    assert resp_mem_list.json()["pagination"]["total"] >= 1
+
+    # 8. Delete individual memory
+    resp_del_mem = client.delete(f"/memories/{mem_id}?user_id={user.id}&workspace_id={ws.id}")
+    assert resp_del_mem.status_code == 200
+
+    # 9. Clean up conversation
+    client.delete(f"/conversations/{conv_id}?workspace_id={ws.id}")

@@ -81,6 +81,9 @@ html, body {
 .sidebar-top {
     display: flex;
     flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
 }
 
 /* Brand */
@@ -1703,4 +1706,365 @@ html, body {
     .docs-header-actions {
         justify-content: flex-start;
     }
+}
+
+/* ============================================================
+   Step 10 — Sidebar Conversations Experience
+   ============================================================ */
+
+.sidebar-section-divider {
+    height: 1px;
+    background: #1e1e1e;
+    margin: 16px 0 12px;
+    flex-shrink: 0;
+}
+
+.sidebar-conversations-section {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.conversations-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 4px 8px;
+    flex-shrink: 0;
+}
+
+.conversations-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #777;
+}
+
+.btn-new-chat {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #f0f0f0;
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-size: 11.5px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.btn-new-chat svg {
+    width: 12px;
+    height: 12px;
+}
+
+.btn-new-chat:hover {
+    background: rgba(255, 255, 255, 0.16);
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.25);
+}
+
+.conversations-list-container {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding-right: 2px;
+}
+
+.conversations-list-container::-webkit-scrollbar {
+    width: 4px;
+}
+.conversations-list-container::-webkit-scrollbar-track {
+    background: transparent;
+}
+.conversations-list-container::-webkit-scrollbar-thumb {
+    background: #2a2a2a;
+    border-radius: 4px;
+}
+
+.conversations-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.conv-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    border-radius: 8px;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.7);
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+    position: relative;
+    user-select: none;
+    gap: 6px;
+}
+
+.conv-item:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: #fff;
+}
+
+.conv-item.active {
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+    font-weight: 500;
+}
+
+.conv-item-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.conv-icon {
+    width: 15px;
+    height: 15px;
+    flex-shrink: 0;
+    color: #888;
+}
+
+.conv-item.active .conv-icon {
+    color: #60a5fa;
+}
+
+.conv-title {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 13px;
+}
+
+.conv-actions {
+    display: none;
+    align-items: center;
+    gap: 2px;
+    flex-shrink: 0;
+}
+
+.conv-item:hover .conv-actions,
+.conv-item.active .conv-actions {
+    display: flex;
+}
+
+.conv-action-btn {
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    border: none;
+    background: transparent;
+    color: #888;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: all 0.15s ease;
+}
+
+.conv-action-btn svg {
+    width: 12px;
+    height: 12px;
+}
+
+.conv-action-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+}
+
+.conv-action-btn.action-delete:hover {
+    background: rgba(239, 68, 68, 0.2);
+    color: #f87171;
+}
+
+.conv-loading-state,
+.conv-empty-state,
+.conv-error-state {
+    font-size: 12px;
+    color: #777;
+    text-align: center;
+    padding: 18px 4px;
+}
+
+.conv-error-state button {
+    margin-top: 6px;
+    font-size: 11px;
+    padding: 4px 8px;
+}
+
+/* ── Chat Messages Loading State ── */
+.chat-loading-history {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    gap: 8px;
+    color: #888;
+    font-size: 13px;
+}
+
+/* ============================================================
+   Step 11 — Memory UI & Cards
+   ============================================================ */
+
+.memory-section {
+    display: flex;
+    flex-direction: column;
+}
+
+.memory-card {
+    background: #161616;
+    border: 1px solid #262626;
+    border-radius: 14px;
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    transition: all 0.2s ease;
+}
+
+.memory-card:hover {
+    border-color: #383838;
+    background: #181818;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.memory-card-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.memory-card-badges {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.badge-scope-workspace {
+    background: rgba(16, 185, 129, 0.12);
+    color: #34d399;
+    border: 1px solid rgba(16, 185, 129, 0.25);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.badge-scope-user {
+    background: rgba(168, 85, 247, 0.12);
+    color: #c084fc;
+    border: 1px solid rgba(168, 85, 247, 0.25);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.badge-type {
+    background: rgba(255, 255, 255, 0.08);
+    color: #d1d5db;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    font-size: 11px;
+    font-weight: 500;
+    padding: 3px 8px;
+    border-radius: 12px;
+    letter-spacing: 0.02em;
+}
+
+.memory-content-box {
+    background: #111;
+    border: 1px solid #222;
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: #e5e5e5;
+    word-break: break-word;
+}
+
+.memory-card-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #777;
+    padding-top: 10px;
+    border-top: 1px solid #222;
+}
+
+.modal-memory-preview {
+    background: #1a1a1a;
+    border-left: 3px solid #f87171;
+    padding: 10px 14px;
+    border-radius: 4px;
+    font-size: 13px;
+    color: #e0e0e0;
+    margin: 12px 0;
+    max-height: 120px;
+    overflow-y: auto;
+    font-style: italic;
+    word-break: break-word;
+}
+
+.textarea-input {
+    width: 100%;
+    background: #181818;
+    border: 1px solid #333;
+    border-radius: 8px;
+    color: #f0f0f0;
+    padding: 10px 12px;
+    font-size: 13px;
+    font-family: inherit;
+    resize: vertical;
+    outline: none;
+    box-sizing: border-box;
+}
+
+.textarea-input:focus {
+    border-color: #2563eb;
+}
+
+.select-input {
+    width: 100%;
+    background: #181818;
+    border: 1px solid #333;
+    border-radius: 8px;
+    color: #f0f0f0;
+    padding: 8px 10px;
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    box-sizing: border-box;
+}
+
+.select-input:focus {
+    border-color: #2563eb;
+}
+
+.form-row {
+    display: flex;
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.form-col {
+    flex: 1;
 }

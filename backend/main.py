@@ -17,6 +17,7 @@ from backend.routes import (
     documents,
     health,
     memories,
+    users,
     workspaces,
 )
 from backend.rag import vector_store as vector_store_module
@@ -343,4 +344,8 @@ app.include_router(
 
 app.include_router(
     memories.router
+)
+
+app.include_router(
+    users.router
 )

@@ -72,9 +72,7 @@ htmlcov/
 # ==========================================
 # Uploaded & Temporary Documents
 # ==========================================
-documents/*.pdf
-documents/temp_*
-documents/.faiss_index/
+documents/*
 !documents/.gitkeep
 !documents/README.md
 

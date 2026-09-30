@@ -73,12 +73,37 @@
                             Documents
                             <span class="nav-badge" id="docsCountBadge">0</span>
                         </a>
-                        <div class="nav-item disabled">
-                            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22 6 12 13 2 6"/></svg>
+                        <a class="nav-item" id="navMemoryBtn" href="#">
+                            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M12 2a5 5 0 0 1 5 5v1a5 5 0 0 1-10 0V7a5 5 0 0 1 5-5z"></path>
+                                <path d="M19 11v1a7 7 0 0 1-14 0v-1"></path>
+                                <line x1="12" y1="19" x2="12" y2="22"></line>
+                                <line x1="8" y1="22" x2="16" y2="22"></line>
+                            </svg>
                             Memory
-                            <span class="nav-badge">Coming Soon</span>
-                        </div>
+                            <span class="nav-badge" id="memoriesCountBadge">0</span>
+                        </a>
                     </nav>
+
+                    <!-- Conversations Section (Step 10) -->
+                    <div class="sidebar-section-divider"></div>
+                    <div class="sidebar-conversations-section">
+                        <div class="conversations-header">
+                            <span class="conversations-title">Recent Chats</span>
+                            <button class="btn-new-chat" id="btnNewChat" title="Start new conversation">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                                </svg>
+                                <span>New</span>
+                            </button>
+                        </div>
+                        <div class="conversations-list-container" id="convListContainer">
+                            <div class="conversations-list" id="convList">
+                                <!-- Populated dynamically via script.js -->
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="sidebar-bottom">
@@ -219,6 +244,63 @@
                     </div>
                 </section>
 
+                <!-- Memory Management Section (Step 11) -->
+                <section class="docs-section memory-section" id="memorySection" style="display: none;">
+                    <div class="docs-header">
+                        <div class="docs-header-left">
+                            <h2 class="docs-title">Memory Management</h2>
+                            <p class="docs-subtitle">Inspect and manage durable user preferences, work context, and system directives stored across conversations.</p>
+                        </div>
+                        <div class="docs-header-actions">
+                            <button class="btn-secondary" id="memoriesRefreshBtn" title="Refresh memory list">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="23 4 23 10 17 10"></polyline>
+                                    <polyline points="1 20 1 14 7 14"></polyline>
+                                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                                </svg>
+                                <span>Refresh</span>
+                            </button>
+                            <button class="btn-primary" id="memoriesAddBtn" title="Add Long-Term Memory">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                                </svg>
+                                <span>Add Memory</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Memory Metrics bar -->
+                    <div class="docs-metrics-bar" id="memoriesMetricsBar">
+                        <div class="metric-item">
+                            <span class="metric-label">Total Memories</span>
+                            <span class="metric-value" id="metricTotalMemories">0</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Workspace Scope</span>
+                            <span class="metric-value metric-success" id="metricWorkspaceMemories">0</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Personal Scope</span>
+                            <span class="metric-value" id="metricPersonalMemories">0</span>
+                        </div>
+                    </div>
+
+                    <!-- Memories Cards / List Container -->
+                    <div class="docs-list-container" id="memoriesListContainer">
+                        <div class="docs-list" id="memoriesList">
+                            <!-- Populated dynamically via script.js -->
+                        </div>
+                    </div>
+
+                    <!-- Pagination Controls -->
+                    <div class="docs-pagination" id="memoriesPagination" style="display: none;">
+                        <button class="btn-page" id="btnPrevMemPage" disabled>&larr; Previous</button>
+                        <span class="page-indicator" id="memPageIndicator">Page 1 of 1</span>
+                        <button class="btn-page" id="btnNextMemPage" disabled>Next &rarr;</button>
+                    </div>
+                </section>
+
             </main>
 
         </div>
@@ -286,6 +368,120 @@
             <div class="modal-footer">
                 <button class="btn-secondary" id="docDeleteCancelBtn">Cancel</button>
                 <button class="btn-danger" id="docDeleteConfirmBtn">Delete Permanently</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Conversation Rename Modal (Step 10) -->
+    <div class="modal-backdrop" id="convRenameModal" style="display: none;">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <h3 class="modal-title">Rename Conversation</h3>
+                <button class="modal-close" id="convRenameCloseBtn" title="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-help">Change the title of this conversation thread.</p>
+                <div class="form-group">
+                    <label for="convRenameInput">Title (1–255 characters)</label>
+                    <input type="text" class="text-input" id="convRenameInput" maxlength="255" autocomplete="off" placeholder="e.g. Project Architecture Discussion">
+                    <div class="form-char-count" id="convRenameCharCount">0 / 255</div>
+                </div>
+                <div class="form-error" id="convRenameError" style="display: none;"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" id="convRenameCancelBtn">Cancel</button>
+                <button class="btn-primary" id="convRenameSubmitBtn">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Conversation Delete Modal (Step 10) -->
+    <div class="modal-backdrop" id="convDeleteModal" style="display: none;">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <h3 class="modal-title">Delete Conversation</h3>
+                <button class="modal-close" id="convDeleteCloseBtn" title="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="delete-warning-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                        <line x1="12" y1="9" x2="12" y2="13"></line>
+                        <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                    </svg>
+                </div>
+                <p class="modal-confirm-text">Are you sure you want to delete <strong id="deleteConvTitle">this conversation</strong>?</p>
+                <p class="modal-help delete-help">This will permanently delete the conversation and all associated message history. This action cannot be undone.</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" id="convDeleteCancelBtn">Cancel</button>
+                <button class="btn-danger" id="convDeleteConfirmBtn">Delete Permanently</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Memory Delete Modal (Step 11) -->
+    <div class="modal-backdrop" id="memoryDeleteModal" style="display: none;">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <h3 class="modal-title">Delete Memory</h3>
+                <button class="modal-close" id="memoryDeleteCloseBtn" title="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="delete-warning-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                        <line x1="12" y1="9" x2="12" y2="13"></line>
+                        <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                    </svg>
+                </div>
+                <p class="modal-confirm-text">Are you sure you want to delete this memory?</p>
+                <div class="modal-memory-preview" id="deleteMemoryPreview"></div>
+                <p class="modal-help delete-help">This memory will be permanently removed and no longer included in conversation context assembly. This action cannot be undone.</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" id="memoryDeleteCancelBtn">Cancel</button>
+                <button class="btn-danger" id="memoryDeleteConfirmBtn">Delete Permanently</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Memory Add Modal (Step 11) -->
+    <div class="modal-backdrop" id="memoryAddModal" style="display: none;">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <h3 class="modal-title">Add Durable Memory</h3>
+                <button class="modal-close" id="memoryAddCloseBtn" title="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-help">Store a durable fact, user preference, or system directive that Rorak AI will remember across conversations.</p>
+                <div class="form-group">
+                    <label for="memoryAddContent">Memory Content</label>
+                    <textarea class="textarea-input" id="memoryAddContent" rows="3" placeholder="e.g. Always respond with concise code examples and avoid excessive pleasantries."></textarea>
+                </div>
+                <div class="form-row">
+                    <div class="form-group form-col">
+                        <label for="memoryAddType">Type</label>
+                        <select class="select-input" id="memoryAddType">
+                            <option value="user_preference">User Preference</option>
+                            <option value="work_context">Work Context</option>
+                            <option value="project_fact">Project Fact</option>
+                            <option value="system_directive" selected>System Directive</option>
+                        </select>
+                    </div>
+                    <div class="form-group form-col">
+                        <label for="memoryAddScope">Scope</label>
+                        <select class="select-input" id="memoryAddScope">
+                            <option value="workspace" selected>Workspace Scope</option>
+                            <option value="user">Personal / Global Scope</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-error" id="memoryAddError" style="display: none;"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" id="memoryAddCancelBtn">Cancel</button>
+                <button class="btn-primary" id="memoryAddSubmitBtn">Save Memory</button>
             </div>
         </div>
     </div>
