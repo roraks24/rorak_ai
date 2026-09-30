@@ -53,6 +53,16 @@ RERANK_TOP_K = int(
 )
 
 
+# Context window & Memory policy configuration
+CONTEXT_WINDOW_SIZE = int(
+    os.getenv("CONTEXT_WINDOW_SIZE", "10")
+)
+
+MEMORY_WINDOW_SIZE = int(
+    os.getenv("MEMORY_WINDOW_SIZE", "5")
+)
+
+
 # Storage & upload limits
 DOCUMENTS_DIR = BASE_DIR / "documents"
 MAX_UPLOAD_SIZE_BYTES = int(

@@ -75,7 +75,7 @@ def chat_func(
     try:
         results = retriev_func(query)
     except Exception:
-        logger.exception("Retrieval failed for query: %.60s", query)
+        logger.exception("Retrieval failed for query (length %d chars)", len(query))
         results = []
     t_retrieval_ms = (time.perf_counter() - t0) * 1000
 

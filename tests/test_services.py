@@ -21,12 +21,14 @@ from backend.services.document_storage import (
 )
 from backend.services.conversation_service import ConversationService
 from backend.services.workspace_service import WorkspaceService
+from backend.services.memory_service import MemoryService
 from backend.services.exceptions import (
     DocumentNotFound,
     ConversationNotFound,
     WorkspaceNotFound,
     WorkspaceAlreadyExists,
     UserNotFound,
+    MemoryNotFound,
     ValidationError,
     Conflict,
     IngestionError,
@@ -919,3 +921,406 @@ def test_conversation_service_step_6_stateful_context_assembly(db_session, sampl
         service.memory_repository.delete(mem1)
         service.memory_repository.delete(mem2)
         db_session.commit()
+
+
+# ============================================================
+# STEP 7 — CONTEXT WINDOW POLICY SPEC TESTS
+# ============================================================
+
+def test_context_window_policy_step_7(db_session, sample_workspace_and_user, caplog):
+    """
+    Exhaustively verify all Step 7 — Context Window Policy requirements:
+    - Start with a deterministic recent-message window.
+    - Make its size configurable.
+    - Preserve message role and order.
+    - Do not confuse short-term conversation history with long-term memory.
+    - If a future summary mechanism is introduced, keep raw history intact.
+    - Avoid logging full sensitive conversation content merely for debugging.
+    """
+    import logging
+    ws, user = sample_workspace_and_user
+
+    # 1. Configurable context window size at service instantiation
+    custom_service = ConversationService(
+        db_session,
+        context_window_size=3,
+        memory_window_size=2,
+    )
+    assert custom_service.context_window_size == 3
+    assert custom_service.memory_window_size == 2
+
+    conv = custom_service.create_conversation(workspace_id=ws.id, user_id=user.id, title="Policy Thread")
+
+    # Add durable memory
+    mem = custom_service.memory_repository.create(Memory(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        workspace_id=ws.id,
+        content="Secret user fact: loves dark mode",
+        memory_type="preference",
+    ))
+    db_session.commit()
+
+    try:
+        # Prepopulate 8 messages with roles
+        created_ids = []
+        for i in range(1, 9):
+            role = "user" if i % 2 == 1 else "assistant"
+            m = custom_service.create_message(conv.id, role, f"Message {i}")
+            created_ids.append(m.id)
+
+        # 2. Deterministic recent-message window & preserve message role and order
+        recent_3 = custom_service.message_repository.get_recent_for_context(
+            conversation_id=conv.id,
+            limit=3,
+        )
+        assert len(recent_3) == 3
+        # Strict chronological order preserved: Message 6 (assistant), Message 7 (user), Message 8 (assistant)
+        assert recent_3[0].content == "Message 6"
+        assert recent_3[0].role == "assistant"
+        assert recent_3[1].content == "Message 7"
+        assert recent_3[1].role == "user"
+        assert recent_3[2].content == "Message 8"
+        assert recent_3[2].role == "assistant"
+
+        # Determinism check: running multiple times yields identical results
+        recent_3_again = custom_service.message_repository.get_recent_for_context(
+            conversation_id=conv.id,
+            limit=3,
+        )
+        assert [m.id for m in recent_3] == [m.id for m in recent_3_again]
+
+        # 3. Configurable via method override (e.g. limit=4)
+        with patch("backend.services.conversation_service.chat_func") as mock_chat:
+            mock_chat.return_value = "Answer with policy applied."
+
+            with caplog.at_level(logging.DEBUG):
+                custom_service.send_user_message_and_reply(
+                    conversation_id=conv.id,
+                    user_content="Super sensitive password query 12345",
+                    history_limit=4,
+                )
+
+            called_kwargs = mock_chat.call_args[1]
+            history_arg = called_kwargs.get("conversation_history")
+            # Verify exactly 4 messages were in window
+            assert len(history_arg) == 4
+            assert [m.content for m in history_arg] == ["Message 5", "Message 6", "Message 7", "Message 8"]
+
+            # 4. Do not confuse short-term conversation history with long-term memory
+            mem_arg = called_kwargs.get("memory_context")
+            assert len(mem_arg) == 1
+            assert mem_arg[0].content == "Secret user fact: loves dark mode"
+            # Verify memory was NOT mixed into history
+            for h in history_arg:
+                assert h.content != mem_arg[0].content
+
+            # 5. Raw history remains completely intact in DB (all 8 original + 1 new user + 1 new assistant = 10)
+            raw_messages, total_raw = custom_service.get_messages(conv.id, page_size=100)
+            assert total_raw == 10
+            assert len(raw_messages) == 10
+
+            # 6. Avoid logging full sensitive conversation content merely for debugging
+            for record in caplog.records:
+                assert "Super sensitive password query 12345" not in record.message
+                assert "Secret user fact: loves dark mode" not in record.message
+
+    finally:
+        custom_service.delete_conversation(conv.id)
+        custom_service.memory_repository.delete(mem)
+        db_session.commit()
+
+
+def test_long_term_memory_service_step_8(db_session):
+    """
+    Step 8 — Long-Term Memory comprehensive test:
+    - Define the memory record and its ownership/scope.
+    - Implement memory creation.
+    - Implement scoped memory listing/retrieval.
+    - Implement memory update.
+    - Implement memory deletion.
+    - Define visibility rules before using memory in generation.
+    - Never retrieve another user's/workspace's memory.
+    - Do not automatically convert every historical message into memory.
+    - Avoid sensitive information by default.
+    - Use a deterministic retrieval method first (no vector memory).
+    - Design distinction: conversation history answers 'What was said in this thread?'
+      while long-term memory answers 'What durable information should Rorak retain?'.
+    """
+    from backend.repositories.user_repository import UserRepository
+    from backend.repositories.workspace_repository import WorkspaceRepository
+
+    u_repo = UserRepository(db_session)
+    w_repo = WorkspaceRepository(db_session)
+    mem_service = MemoryService(db_session)
+    conv_service = ConversationService(db_session)
+
+    # 1. Setup users and workspaces
+    user1 = u_repo.create(User(id=uuid.uuid4(), email=f"step8_user1_{uuid.uuid4().hex[:6]}@example.com"))
+    user2 = u_repo.create(User(id=uuid.uuid4(), email=f"step8_user2_{uuid.uuid4().hex[:6]}@example.com"))
+    ws_a = w_repo.create(Workspace(id=uuid.uuid4(), name=f"WS_A_{uuid.uuid4().hex[:6]}"))
+    ws_b = w_repo.create(Workspace(id=uuid.uuid4(), name=f"WS_B_{uuid.uuid4().hex[:6]}"))
+    db_session.commit()
+
+    try:
+        # 2. Memory creation & scope definition
+        # Global memory (workspace_id=None)
+        m_global = mem_service.create_memory(
+            user_id=user1.id,
+            content="User prefers Python and concise explanations",
+            memory_type="preference",
+            workspace_id=None,
+        )
+        assert m_global.id is not None
+        assert m_global.user_id == user1.id
+        assert m_global.workspace_id is None
+        assert m_global.memory_type == "preference"
+        assert m_global.created_at is not None
+        assert m_global.updated_at is not None
+
+        # Workspace-scoped memory
+        m_wsa = mem_service.create_memory(
+            user_id=user1.id,
+            content="Project rule: use FastAPI and Pydantic v2",
+            memory_type="instruction",
+            workspace_id=ws_a.id,
+        )
+        assert m_wsa.workspace_id == ws_a.id
+
+        # Validation on non-existent user / workspace
+        with pytest.raises(UserNotFound):
+            mem_service.create_memory(
+                user_id=uuid.uuid4(),
+                content="Orphan memory",
+            )
+
+        with pytest.raises(WorkspaceNotFound):
+            mem_service.create_memory(
+                user_id=user1.id,
+                workspace_id=uuid.uuid4(),
+                content="Orphan workspace memory",
+            )
+
+        # Validation on empty content and invalid length
+        with pytest.raises(ValidationError):
+            mem_service.create_memory(user_id=user1.id, content="   ")
+
+        with pytest.raises(ValidationError):
+            mem_service.create_memory(user_id=user1.id, content="a" * 5001)
+
+        with pytest.raises(ValidationError):
+            mem_service.create_memory(user_id=user1.id, content="Valid content", memory_type="   ")
+
+        # 3. Avoid sensitive information by default
+        # Passwords rejected
+        with pytest.raises(ValidationError) as exc_pwd:
+            mem_service.create_memory(user_id=user1.id, content="Database password: supersecret123")
+        assert "sensitive information" in str(exc_pwd.value)
+
+        # API keys rejected
+        with pytest.raises(ValidationError) as exc_key:
+            mem_service.create_memory(user_id=user1.id, content="OpenAI key is sk-1234567890123456789012345678")
+        assert "sensitive information" in str(exc_key.value)
+
+        # AWS keys rejected
+        with pytest.raises(ValidationError):
+            mem_service.create_memory(user_id=user1.id, content="AWS key AKIA1234567890ABCDEF")
+
+        # Bearer tokens rejected
+        with pytest.raises(ValidationError):
+            mem_service.create_memory(user_id=user1.id, content="Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ91234567890")
+
+        # Private keys rejected
+        with pytest.raises(ValidationError):
+            mem_service.create_memory(user_id=user1.id, content="-----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----")
+
+        # Opt-in override with allow_sensitive=True succeeds if explicitly requested
+        m_sensitive = mem_service.create_memory(
+            user_id=user1.id,
+            content="Sample token password: test",
+            allow_sensitive=True,
+        )
+        assert m_sensitive.id is not None
+        mem_service.delete_memory(m_sensitive.id, user_id=user1.id)
+
+        # 4. Scoped retrieval & listing
+        # Retrieve by ID
+        fetched = mem_service.get_memory(m_global.id, user_id=user1.id)
+        assert fetched.id == m_global.id
+        assert fetched.content == "User prefers Python and concise explanations"
+
+        # Non-existent ID raises MemoryNotFound
+        with pytest.raises(MemoryNotFound):
+            mem_service.get_memory(uuid.uuid4())
+
+        # Never retrieve another user's memory
+        with pytest.raises(MemoryNotFound):
+            mem_service.get_memory(m_global.id, user_id=user2.id)
+
+        # Never retrieve another workspace's memory
+        with pytest.raises(MemoryNotFound):
+            mem_service.get_memory(m_wsa.id, user_id=user1.id, workspace_id=ws_b.id)
+
+        # List memories with pagination
+        mems, total = mem_service.list_memories(user_id=user1.id, workspace_id=ws_a.id, page=1, page_size=10)
+        assert total == 2
+        assert len(mems) == 2
+
+        # Pagination validation
+        with pytest.raises(ValidationError):
+            mem_service.list_memories(user_id=user1.id, page=0)
+        with pytest.raises(ValidationError):
+            mem_service.list_memories(user_id=user1.id, page_size=101)
+
+        # Memory type filter
+        instr_mems, instr_total = mem_service.list_memories(
+            user_id=user1.id,
+            workspace_id=ws_a.id,
+            memory_type="instruction",
+        )
+        assert instr_total == 1
+        assert instr_mems[0].id == m_wsa.id
+
+        # 5. Memory update
+        updated = mem_service.update_memory(
+            memory_id=m_wsa.id,
+            content="Project rule: use FastAPI, Pydantic v2, and Ruff",
+            memory_type="guideline",
+            user_id=user1.id,
+            workspace_id=ws_a.id,
+        )
+        assert updated.content == "Project rule: use FastAPI, Pydantic v2, and Ruff"
+        assert updated.memory_type == "guideline"
+
+        # Update rejecting sensitive data
+        with pytest.raises(ValidationError):
+            mem_service.update_memory(
+                memory_id=m_wsa.id,
+                content="API key sk-12345678901234567890123456",
+                user_id=user1.id,
+            )
+
+        # Update by another user rejected
+        with pytest.raises(MemoryNotFound):
+            mem_service.update_memory(
+                memory_id=m_wsa.id,
+                content="Hacked memory",
+                user_id=user2.id,
+            )
+
+        # 6. Memory deletion
+        # Deletion by another user rejected
+        with pytest.raises(MemoryNotFound):
+            mem_service.delete_memory(m_wsa.id, user_id=user2.id)
+
+        # Deletion by owner succeeds
+        mem_service.delete_memory(m_wsa.id, user_id=user1.id)
+        with pytest.raises(MemoryNotFound):
+            mem_service.get_memory(m_wsa.id)
+
+        # Recreate workspace memory for generation test
+        m_wsa_new = mem_service.create_memory(
+            user_id=user1.id,
+            content="Project rule WS_A: TypeScript and React",
+            memory_type="rule",
+            workspace_id=ws_a.id,
+        )
+
+        # 7. Visibility rules in generation context
+        # Setup memories across users and workspaces
+        # User 1 in Workspace B
+        m_wsb_user1 = mem_service.create_memory(
+            user_id=user1.id,
+            content="Project rule WS_B: Go and gRPC",
+            memory_type="rule",
+            workspace_id=ws_b.id,
+        )
+        # User 2 in Workspace A
+        m_wsa_user2 = mem_service.create_memory(
+            user_id=user2.id,
+            content="User 2 private note in WS_A",
+            memory_type="note",
+            workspace_id=ws_a.id,
+        )
+
+        # Generation for User 1 in Workspace A
+        gen_mems_user1_wsa = mem_service.get_generation_memories(user_id=user1.id, workspace_id=ws_a.id)
+        gen_ids_wsa = [m.id for m in gen_mems_user1_wsa]
+
+        # MUST contain User 1's global memory and User 1's WS_A memory
+        assert m_global.id in gen_ids_wsa
+        assert m_wsa_new.id in gen_ids_wsa
+
+        # MUST NEVER retrieve another user's memory (User 2 in WS_A)
+        assert m_wsa_user2.id not in gen_ids_wsa
+
+        # MUST NEVER retrieve another workspace's memory (User 1 in WS_B)
+        assert m_wsb_user1.id not in gen_ids_wsa
+
+        # Generation for User 1 with NO workspace (global user context)
+        gen_mems_user1_global = mem_service.get_generation_memories(user_id=user1.id, workspace_id=None)
+        gen_ids_global = [m.id for m in gen_mems_user1_global]
+        assert m_global.id in gen_ids_global
+        assert m_wsa_new.id not in gen_ids_global
+        assert m_wsb_user1.id not in gen_ids_global
+        assert m_wsa_user2.id not in gen_ids_global
+
+        # 8. Design distinction: Do not automatically convert every historical message into memory
+        # Conversation history answers "What was said in this thread?"
+        # Long-term memory answers "What durable information should Rorak retain?"
+        conv = conv_service.create_conversation(
+            workspace_id=ws_a.id,
+            user_id=user1.id,
+            title="Design Distinction Thread",
+        )
+
+        initial_memory_count = mem_service.memory_repo.count_by_user(user1.id)
+
+        with patch("backend.services.conversation_service.chat_func") as mock_chat:
+            mock_chat.return_value = "Hello! I remember your Python preference."
+            user_msg, assistant_msg = conv_service.send_user_message_and_reply(
+                conversation_id=conv.id,
+                user_content="Hi Rorak, my favorite color is teal.",
+                user_id=user1.id,
+                workspace_id=ws_a.id,
+            )
+            assert assistant_msg.content == "Hello! I remember your Python preference."
+
+        # Verify that messages were stored in conversation history
+        msgs, msg_count = conv_service.get_messages(conv.id)
+        assert msg_count == 2
+        msg_contents = [m.content for m in msgs]
+        assert "Hi Rorak, my favorite color is teal." in msg_contents
+        assert "Hello! I remember your Python preference." in msg_contents
+
+        # Verify that durable memories count did NOT increase
+        final_memory_count = mem_service.memory_repo.count_by_user(user1.id)
+        assert final_memory_count == initial_memory_count, (
+            "Historical conversation messages must NOT be automatically converted into long-term memories."
+        )
+
+        # Clean up conversation
+        conv_service.delete_conversation(conv.id)
+
+        # Clean up memories
+        mem_service.delete_memory(m_global.id, user_id=user1.id)
+        mem_service.delete_memory(m_wsa_new.id, user_id=user1.id)
+        mem_service.delete_memory(m_wsb_user1.id, user_id=user1.id)
+        mem_service.delete_memory(m_wsa_user2.id, user_id=user2.id)
+
+    finally:
+        try:
+            db_session.query(Memory).filter(Memory.user_id.in_([user1.id, user2.id])).delete(synchronize_session=False)
+            db_session.query(Conversation).filter(Conversation.user_id.in_([user1.id, user2.id])).delete(synchronize_session=False)
+            db_session.commit()
+        except Exception:
+            db_session.rollback()
+
+        try:
+            w_repo.delete(ws_b)
+            w_repo.delete(ws_a)
+            u_repo.delete(user2)
+            u_repo.delete(user1)
+            db_session.commit()
+        except Exception:
+            db_session.rollback()

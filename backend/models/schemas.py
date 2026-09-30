@@ -83,10 +83,23 @@ class ChatRequest(BaseModel):
         max_length=10000,
         description="The user's question",
     )
+    conversation_id: Optional[UUID] = Field(
+        default=None,
+        description="Optional existing conversation thread ID to continue",
+    )
+    workspace_id: Optional[UUID] = Field(
+        default=None,
+        description="Optional workspace ID for context and scoping",
+    )
+    user_id: Optional[UUID] = Field(
+        default=None,
+        description="Optional user ID for scoping and memory",
+    )
 
 
 class ChatResponse(BaseModel):
     answer: str
+    conversation_id: Optional[UUID] = None
 
 
 # ============================================================
@@ -243,6 +256,15 @@ class CreateConversationRequest(BaseModel):
     )
 
 
+class RenameConversationRequest(BaseModel):
+    title: str = Field(
+        ...,
+        min_length=1,
+        max_length=255,
+        description="Updated conversation title",
+    )
+
+
 class ConversationResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -309,3 +331,58 @@ class IngestionJobResponse(BaseModel):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     created_at: datetime
+
+
+# ============================================================
+# MEMORY SCHEMAS
+# ============================================================
+
+class CreateMemoryRequest(BaseModel):
+    user_id: UUID
+    workspace_id: Optional[UUID] = None
+    content: str = Field(
+        ...,
+        min_length=1,
+        max_length=5000,
+        description="Durable memory content to retain",
+    )
+    memory_type: str = Field(
+        default="preference",
+        min_length=1,
+        max_length=50,
+        description="Type classification (e.g. preference, fact, instruction, profile)",
+    )
+
+
+class UpdateMemoryRequest(BaseModel):
+    content: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=5000,
+        description="Updated durable memory content",
+    )
+    memory_type: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=50,
+        description="Updated type classification",
+    )
+
+
+class MemoryResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    user_id: UUID
+    workspace_id: Optional[UUID] = None
+
+    content: str
+    memory_type: str
+
+    created_at: datetime
+    updated_at: datetime
+
+
+class MemoryListResponse(BaseModel):
+    memories: list[MemoryResponse]
+    pagination: Pagination

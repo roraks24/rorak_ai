@@ -44,21 +44,94 @@ class MemoryRepository:
         limit: int = 10,
     ) -> list[Memory]:
         """
-        Retrieve relevant durable memories for the specified scope
-        (user and/or workspace), newest first.
+        Retrieve relevant durable memories for the specified scope, newest first.
+        Enforces strict visibility rules:
+        - Never retrieve another user's memory.
+        - Never retrieve another workspace's memory.
         """
         stmt = select(Memory)
-        conditions = []
-        if user_id is not None:
-            conditions.append(Memory.user_id == user_id)
-        if workspace_id is not None:
-            conditions.append(Memory.workspace_id == workspace_id)
-
-        if conditions:
-            stmt = stmt.where(or_(*conditions))
+        if user_id is not None and workspace_id is not None:
+            # User in a specific workspace: see user's workspace memories and user's global memories,
+            # but NEVER another workspace's memories and NEVER another user's memories.
+            stmt = stmt.where(
+                Memory.user_id == user_id,
+                or_(
+                    Memory.workspace_id == workspace_id,
+                    Memory.workspace_id.is_(None),
+                ),
+            )
+        elif user_id is not None:
+            # Global user context: only user memories that are not bound to any workspace
+            stmt = stmt.where(
+                Memory.user_id == user_id,
+                Memory.workspace_id.is_(None),
+            )
+        elif workspace_id is not None:
+            stmt = stmt.where(Memory.workspace_id == workspace_id)
 
         stmt = stmt.order_by(Memory.created_at.desc(), Memory.id.desc()).limit(limit)
         return list(self.db.execute(stmt).scalars().all())
+
+    def list_scoped_memories(
+        self,
+        user_id: UUID,
+        workspace_id: UUID | None = None,
+        memory_type: str | None = None,
+        include_global: bool = True,
+        skip: int = 0,
+        limit: int = 20,
+    ) -> list[Memory]:
+        """
+        List memories scoped deterministically with pagination and strict isolation.
+        """
+        stmt = select(Memory).where(Memory.user_id == user_id)
+
+        if workspace_id is not None:
+            if include_global:
+                stmt = stmt.where(
+                    or_(
+                        Memory.workspace_id == workspace_id,
+                        Memory.workspace_id.is_(None),
+                    )
+                )
+            else:
+                stmt = stmt.where(Memory.workspace_id == workspace_id)
+        else:
+            stmt = stmt.where(Memory.workspace_id.is_(None))
+
+        if memory_type is not None:
+            stmt = stmt.where(Memory.memory_type == memory_type)
+
+        stmt = stmt.order_by(Memory.created_at.desc(), Memory.id.desc()).offset(skip).limit(limit)
+        return list(self.db.execute(stmt).scalars().all())
+
+    def count_scoped_memories(
+        self,
+        user_id: UUID,
+        workspace_id: UUID | None = None,
+        memory_type: str | None = None,
+        include_global: bool = True,
+    ) -> int:
+        """Count memories under the given scope."""
+        stmt = select(func.count(Memory.id)).where(Memory.user_id == user_id)
+
+        if workspace_id is not None:
+            if include_global:
+                stmt = stmt.where(
+                    or_(
+                        Memory.workspace_id == workspace_id,
+                        Memory.workspace_id.is_(None),
+                    )
+                )
+            else:
+                stmt = stmt.where(Memory.workspace_id == workspace_id)
+        else:
+            stmt = stmt.where(Memory.workspace_id.is_(None))
+
+        if memory_type is not None:
+            stmt = stmt.where(Memory.memory_type == memory_type)
+
+        return self.db.execute(stmt).scalar_one()
 
     def count_by_user(self, user_id: UUID) -> int:
         """Count memories for a user."""
@@ -73,6 +146,20 @@ class MemoryRepository:
     def create(self, memory: Memory) -> Memory:
         """Create and flush a new memory record."""
         self.db.add(memory)
+        self.db.flush()
+        return memory
+
+    def update(
+        self,
+        memory: Memory,
+        content: str | None = None,
+        memory_type: str | None = None,
+    ) -> Memory:
+        """Update memory content or type and flush changes."""
+        if content is not None:
+            memory.content = content
+        if memory_type is not None:
+            memory.memory_type = memory_type
         self.db.flush()
         return memory
 

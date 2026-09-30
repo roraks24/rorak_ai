@@ -34,7 +34,8 @@ def setup_user_and_workspace(db_session):
     yield ws, user
 
     # Cleanup
-    from backend.models.db import DocumentChunk, IngestionJob, Document, Message, Conversation, WorkspaceMember
+    from backend.models.db import DocumentChunk, IngestionJob, Document, Message, Conversation, WorkspaceMember, Memory
+    db_session.query(Memory).filter((Memory.workspace_id == ws.id) | (Memory.user_id == user.id)).delete(synchronize_session=False)
     doc_ids = [d.id for d in db_session.query(Document).filter(Document.workspace_id == ws.id).all()]
     if doc_ids:
         db_session.query(DocumentChunk).filter(DocumentChunk.document_id.in_(doc_ids)).delete(synchronize_session=False)
@@ -356,3 +357,205 @@ def test_document_v2_rename_validation_api(setup_user_and_workspace):
     )
     assert resp_long.status_code in (400, 422)
 
+
+def test_memory_api_crud(setup_user_and_workspace):
+    """Verify Memory REST API lifecycle: create, list, get, patch, delete."""
+    ws, user = setup_user_and_workspace
+
+    # 1. Create memory
+    resp = client.post(
+        "/memories/",
+        json={
+            "user_id": str(user.id),
+            "workspace_id": str(ws.id),
+            "content": "API preference: User prefers JSON responses",
+            "memory_type": "preference",
+        },
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["content"] == "API preference: User prefers JSON responses"
+    assert data["memory_type"] == "preference"
+    mem_id = data["id"]
+
+    # 2. Sensitive content rejected with 400
+    resp_sens = client.post(
+        "/memories/",
+        json={
+            "user_id": str(user.id),
+            "content": "Secret key is sk-123456789012345678901234",
+            "memory_type": "secret",
+        },
+    )
+    assert resp_sens.status_code == 400
+
+    # 3. Get memory by ID
+    resp_get = client.get(f"/memories/{mem_id}")
+    assert resp_get.status_code == 200
+    assert resp_get.json()["id"] == mem_id
+
+    # 4. List memories
+    resp_list = client.get(f"/memories/?user_id={user.id}&workspace_id={ws.id}")
+    assert resp_list.status_code == 200
+    list_data = resp_list.json()
+    assert list_data["pagination"]["total"] >= 1
+    assert any(m["id"] == mem_id for m in list_data["memories"])
+
+    # 5. Update memory
+    resp_patch = client.patch(
+        f"/memories/{mem_id}",
+        json={
+            "content": "Updated API preference: User prefers YAML responses",
+            "memory_type": "format_preference",
+        },
+    )
+    assert resp_patch.status_code == 200
+    patch_data = resp_patch.json()
+    assert patch_data["content"] == "Updated API preference: User prefers YAML responses"
+    assert patch_data["memory_type"] == "format_preference"
+
+    # 6. Delete memory
+    resp_del = client.delete(f"/memories/{mem_id}")
+    assert resp_del.status_code == 200
+
+    # 7. 404 after deletion
+    resp_gone = client.get(f"/memories/{mem_id}")
+    assert resp_gone.status_code == 404
+
+
+def test_step_9_conversation_api_contract(setup_user_and_workspace):
+    """
+    Step 9 — API Contracts:
+    - Create: POST /conversations (Bind to correct user/workspace)
+    - List: GET /conversations (Scoped + paginated)
+    - Get: GET /conversations/{id} (Reopen, scoped lookup)
+    - Rename: PATCH /conversations/{id} (Change title, no message mutation)
+    - Messages: GET /conversations/{id}/messages (Load history in deterministic order)
+    - Chat continuity: carry conversation_id when continuing an existing thread, avoid creating a new conversation for every message
+    - Delete: DELETE /conversations/{id} (Remove thread, safe message cleanup)
+    """
+    from unittest.mock import patch
+
+    ws, user = setup_user_and_workspace
+
+    # 1. Create thread (POST /conversations)
+    resp_create = client.post(
+        "/conversations/",
+        json={
+            "workspace_id": str(ws.id),
+            "user_id": str(user.id),
+            "title": "Initial Step 9 Thread",
+        },
+    )
+    assert resp_create.status_code == 201
+    conv_data = resp_create.json()
+    assert conv_data["title"] == "Initial Step 9 Thread"
+    assert conv_data["workspace_id"] == str(ws.id)
+    assert conv_data["user_id"] == str(user.id)
+    conv_id = conv_data["id"]
+
+    # 2. List threads (GET /conversations) - scoped and paginated
+    resp_list_ws = client.get(f"/conversations/?workspace_id={ws.id}&page=1&page_size=10")
+    assert resp_list_ws.status_code == 200
+    assert resp_list_ws.json()["pagination"]["total"] == 1
+
+    resp_list_user = client.get(f"/conversations/?user_id={user.id}&page=1&page_size=10")
+    assert resp_list_user.status_code == 200
+    assert resp_list_user.json()["pagination"]["total"] == 1
+
+    # Calling without any scope returns 422
+    resp_no_scope = client.get("/conversations/")
+    assert resp_no_scope.status_code == 422
+
+    # 3. Get thread (reopen with scoped lookup) (GET /conversations/{id})
+    resp_get = client.get(f"/conversations/{conv_id}?workspace_id={ws.id}&user_id={user.id}")
+    assert resp_get.status_code == 200
+    assert resp_get.json()["id"] == conv_id
+
+    # Cross-workspace scoped lookup returns 404
+    fake_ws_id = uuid.uuid4()
+    resp_cross_ws = client.get(f"/conversations/{conv_id}?workspace_id={fake_ws_id}")
+    assert resp_cross_ws.status_code == 404
+
+    # 4. Add historical message before rename
+    resp_msg1 = client.post(
+        f"/conversations/{conv_id}/messages",
+        json={"role": "user", "content": "Message 1 before rename"},
+    )
+    assert resp_msg1.status_code == 201
+
+    # 5. Rename thread (PATCH /conversations/{id}) - no message mutation
+    resp_rename = client.patch(
+        f"/conversations/{conv_id}",
+        json={"title": "Updated Thread Title"},
+        params={"workspace_id": str(ws.id), "user_id": str(user.id)},
+    )
+    assert resp_rename.status_code == 200
+    assert resp_rename.json()["title"] == "Updated Thread Title"
+
+    # Verify message was not mutated
+    resp_msgs_check = client.get(f"/conversations/{conv_id}/messages")
+    assert resp_msgs_check.status_code == 200
+    assert len(resp_msgs_check.json()["messages"]) == 1
+    assert resp_msgs_check.json()["messages"][0]["content"] == "Message 1 before rename"
+
+    # 6. Messages endpoint (GET /conversations/{id}/messages) - deterministic order
+    resp_msg2 = client.post(
+        f"/conversations/{conv_id}/messages",
+        json={"role": "assistant", "content": "Message 2 assistant reply"},
+    )
+    assert resp_msg2.status_code == 201
+
+    resp_msgs = client.get(f"/conversations/{conv_id}/messages?page=1&page_size=10")
+    assert resp_msgs.status_code == 200
+    msgs_data = resp_msgs.json()["messages"]
+    assert len(msgs_data) == 2
+    # Deterministic chronological order
+    assert msgs_data[0]["content"] == "Message 1 before rename"
+    assert msgs_data[1]["content"] == "Message 2 assistant reply"
+
+    # 7. Chat continuity: carry conversation_id when continuing an existing thread
+    with patch("backend.services.conversation_service.chat_func") as mock_chat:
+        mock_chat.return_value = "Turn 1 answer from Rorak"
+
+        # Turn 1 continuing existing thread
+        resp_turn1 = client.post(
+            "/chat/",
+            json={
+                "question": "Chat Turn 1 question",
+                "conversation_id": conv_id,
+                "workspace_id": str(ws.id),
+                "user_id": str(user.id),
+            },
+        )
+        assert resp_turn1.status_code == 200
+        assert resp_turn1.json()["conversation_id"] == conv_id
+        assert resp_turn1.json()["answer"] == "Turn 1 answer from Rorak"
+
+        # Turn 2 continuing existing thread
+        mock_chat.return_value = "Turn 2 answer from Rorak"
+        resp_turn2 = client.post(
+            "/chat/",
+            json={
+                "question": "Chat Turn 2 question",
+                "conversation_id": conv_id,
+                "workspace_id": str(ws.id),
+                "user_id": str(user.id),
+            },
+        )
+        assert resp_turn2.status_code == 200
+        assert resp_turn2.json()["conversation_id"] == conv_id
+        assert resp_turn2.json()["answer"] == "Turn 2 answer from Rorak"
+
+    # Verify no new duplicate conversations were created for every message
+    resp_list_threads = client.get(f"/conversations/?workspace_id={ws.id}")
+    assert resp_list_threads.status_code == 200
+    assert resp_list_threads.json()["pagination"]["total"] == 1
+
+    # 8. Delete thread (DELETE /conversations/{id}) - safe message cleanup
+    resp_del = client.delete(f"/conversations/{conv_id}")
+    assert resp_del.status_code == 200
+
+    # 404 after deletion
+    resp_reopen_deleted = client.get(f"/conversations/{conv_id}")
+    assert resp_reopen_deleted.status_code == 404

@@ -32,6 +32,11 @@ class UserNotFound(NotFound):
         super().__init__(message, code="USER_NOT_FOUND")
 
 
+class MemoryNotFound(NotFound):
+    def __init__(self, message: str = "Memory not found"):
+        super().__init__(message, code="MEMORY_NOT_FOUND")
+
+
 class ValidationError(ServiceException):
     """Business validation error."""
     def __init__(self, message: str, code: str = "VALIDATION_ERROR"):

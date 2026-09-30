@@ -4,6 +4,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy.orm import Session
 
+from backend.core.config import CONTEXT_WINDOW_SIZE, MEMORY_WINDOW_SIZE
 from backend.models.db.conversation import Conversation
 from backend.models.db.message import Message
 from backend.models.db.users import User
@@ -29,7 +30,8 @@ VALID_ROLES = {role.value for role in MessageRole}
 class ConversationService:
     """
     Coordinates conversation lifecycle, message history,
-    validation, workspace isolation, and RAG generation integration.
+    validation, workspace isolation, context window policy,
+    and RAG generation integration.
     """
 
     def __init__(
@@ -38,6 +40,8 @@ class ConversationService:
         repository: ConversationRepository | None = None,
         message_repository: MessageRepository | None = None,
         memory_repository: MemoryRepository | None = None,
+        context_window_size: int = CONTEXT_WINDOW_SIZE,
+        memory_window_size: int = MEMORY_WINDOW_SIZE,
     ):
         self.db = db
         self.repository = repository or ConversationRepository(db)
@@ -47,6 +51,8 @@ class ConversationService:
         self.memory_repository = (
             memory_repository or MemoryRepository(db)
         )
+        self.context_window_size = context_window_size
+        self.memory_window_size = memory_window_size
 
     # ------------------------------------------------------------------
     # Conversation lookup
@@ -411,19 +417,17 @@ class ConversationService:
         user_content: str,
         workspace_id: UUID | None = None,
         user_id: UUID | None = None,
-        history_limit: int = 10,
-        memory_limit: int = 5,
+        history_limit: int | None = None,
+        memory_limit: int | None = None,
     ) -> tuple[Message, Message]:
         """
-        Step 6 — Stateful Chat Context Assembly:
-        11. Identify the conversation from the request.
-        12. Persist the user message according to the chosen transaction strategy.
-        13. Load a bounded recent history window (do not inject entire lifetime conversation).
-        14. Retrieve relevant durable memory for the correct scope.
-        15. Run existing RAG retrieval path when request is grounded.
-        16. Keep system instructions separate from user content and retrieved text.
-        17. Generate the assistant response.
-        18. Persist the assistant message only after successful generation.
+        Step 6 & 7 — Stateful Chat Context Assembly & Context Window Policy:
+        - Start with a deterministic recent-message window.
+        - Make its size configurable (via config/instance/call).
+        - Preserve message role and chronological order.
+        - Do not confuse short-term conversation history with long-term memory.
+        - Keep raw history intact in DB without destructive truncation.
+        - Avoid logging sensitive conversation content.
         """
         # 11. Identify the conversation from the request
         conversation = self.get_conversation(
@@ -444,19 +448,27 @@ class ConversationService:
                 "Message content cannot exceed 10000 characters."
             )
 
-        # 13. Load a bounded recent history window before adding current turn
+        # Configurable bounded window limits
+        effective_history_limit = (
+            history_limit if history_limit is not None else self.context_window_size
+        )
+        effective_memory_limit = (
+            memory_limit if memory_limit is not None else self.memory_window_size
+        )
+
+        # 13. Load deterministic, bounded recent history window (raw history stays intact)
         bounded_history = self.message_repository.get_recent_for_context(
             conversation_id=conversation.id,
             workspace_id=conversation.workspace_id,
             user_id=conversation.user_id,
-            limit=history_limit,
+            limit=effective_history_limit,
         )
 
-        # 14. Retrieve relevant durable memory for the correct scope
+        # 14. Retrieve relevant durable memory for the correct scope (kept distinct from history)
         scoped_memories = self.memory_repository.get_scoped_memories(
             user_id=conversation.user_id,
             workspace_id=conversation.workspace_id,
-            limit=memory_limit,
+            limit=effective_memory_limit,
         )
 
         try:

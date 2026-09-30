@@ -29,6 +29,10 @@ from backend.models.schemas import (
     CreateMessageRequest,
     AddMemberRequest,
     RenameDocumentRequest,
+    CreateMemoryRequest,
+    UpdateMemoryRequest,
+    MemoryResponse,
+    MemoryListResponse,
 )
 
 
@@ -384,3 +388,71 @@ def test_document_response_orm_serialization():
     assert resp.chunk_count == 25
     assert resp.status == DocumentStatus.INDEXED
     assert resp.failure_reason is None
+
+
+def test_memory_schemas():
+    """Verify validation and serialization for Memory schemas."""
+    user_id = uuid.uuid4()
+    ws_id = uuid.uuid4()
+    mem_id = uuid.uuid4()
+    now = datetime.now(timezone.utc)
+
+    # 1. CreateMemoryRequest valid
+    req = CreateMemoryRequest(
+        user_id=user_id,
+        workspace_id=ws_id,
+        content="User prefers Python over JavaScript",
+        memory_type="preference",
+    )
+    assert req.user_id == user_id
+    assert req.workspace_id == ws_id
+    assert req.content == "User prefers Python over JavaScript"
+    assert req.memory_type == "preference"
+
+    # Default memory_type
+    req_default = CreateMemoryRequest(
+        user_id=user_id,
+        content="Global user fact",
+    )
+    assert req_default.workspace_id is None
+    assert req_default.memory_type == "preference"
+
+    # Empty content rejected
+    with pytest.raises(PydanticValidationError):
+        CreateMemoryRequest(user_id=user_id, content="")
+
+    # 2. UpdateMemoryRequest
+    up_req = UpdateMemoryRequest(content="Updated fact", memory_type="instruction")
+    assert up_req.content == "Updated fact"
+    assert up_req.memory_type == "instruction"
+
+    # Partial update allowed
+    up_partial = UpdateMemoryRequest(content="Only content updated")
+    assert up_partial.content == "Only content updated"
+    assert up_partial.memory_type is None
+
+    # 3. MemoryResponse ORM serialization
+    from unittest.mock import Mock
+    orm_mem = Mock()
+    orm_mem.id = mem_id
+    orm_mem.user_id = user_id
+    orm_mem.workspace_id = ws_id
+    orm_mem.content = "User preference: succinct answers"
+    orm_mem.memory_type = "preference"
+    orm_mem.created_at = now
+    orm_mem.updated_at = now
+
+    mem_resp = MemoryResponse.model_validate(orm_mem)
+    assert mem_resp.id == mem_id
+    assert mem_resp.user_id == user_id
+    assert mem_resp.workspace_id == ws_id
+    assert mem_resp.content == "User preference: succinct answers"
+    assert mem_resp.memory_type == "preference"
+
+    # 4. MemoryListResponse
+    list_resp = MemoryListResponse(
+        memories=[mem_resp],
+        pagination=Pagination(page=1, page_size=20, total=1, total_pages=1),
+    )
+    assert len(list_resp.memories) == 1
+    assert list_resp.pagination.total == 1

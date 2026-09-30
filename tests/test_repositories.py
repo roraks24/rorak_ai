@@ -738,15 +738,57 @@ def test_memory_repository(db_session):
         assert mem_repo.count_by_user(user.id) == 2
         assert mem_repo.count_by_workspace(ws.id) == 1
 
+        # Update
+        updated = mem_repo.update(mem1, content="Updated: User prefers Python 3.12", memory_type="tech_preference")
+        assert updated.content == "Updated: User prefers Python 3.12"
+        assert updated.memory_type == "tech_preference"
+        db_session.commit()
+
+        # Scoped pagination and filtering
+        paged_mems = mem_repo.list_scoped_memories(user_id=user.id, workspace_id=ws.id, skip=0, limit=1)
+        assert len(paged_mems) == 1
+        assert mem_repo.count_scoped_memories(user_id=user.id, workspace_id=ws.id) == 2
+
+        # Isolation checks: User 2 and Workspace 2
+        user2 = u_repo.create(User(id=uuid.uuid4(), email=f"mem_user2_{uuid.uuid4().hex[:6]}@example.com"))
+        ws2 = w_repo.create(Workspace(id=uuid.uuid4(), name=f"Mem_WS2_{uuid.uuid4().hex[:6]}"))
+        db_session.commit()
+
+        mem_user2 = mem_repo.create(Memory(
+            id=uuid.uuid4(),
+            user_id=user2.id,
+            workspace_id=ws.id,
+            content="User 2 memory in WS 1",
+            memory_type="preference",
+        ))
+        mem_ws2 = mem_repo.create(Memory(
+            id=uuid.uuid4(),
+            user_id=user.id,
+            workspace_id=ws2.id,
+            content="User 1 memory in WS 2",
+            memory_type="preference",
+        ))
+        db_session.commit()
+
+        # Query for user 1 in workspace 1 must NOT retrieve user 2's memory or workspace 2's memory
+        isolated_scoped = mem_repo.get_scoped_memories(user_id=user.id, workspace_id=ws.id)
+        isolated_ids = [m.id for m in isolated_scoped]
+        assert mem_user2.id not in isolated_ids  # Never retrieve another user's memory
+        assert mem_ws2.id not in isolated_ids    # Never retrieve another workspace's memory
+
         # Delete
         mem_repo.delete(mem1)
         mem_repo.delete(mem2)
+        mem_repo.delete(mem_user2)
+        mem_repo.delete(mem_ws2)
         db_session.commit()
 
         assert mem_repo.get_by_id(mem1.id) is None
         assert mem_repo.get_by_id(mem2.id) is None
 
     finally:
+        w_repo.delete(ws2)
+        u_repo.delete(user2)
         w_repo.delete(ws)
         u_repo.delete(user)
         db_session.commit()

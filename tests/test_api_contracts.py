@@ -101,3 +101,55 @@ def test_openapi_error_response_contract_referenced():
     assert "404" in responses
     ref = responses["404"]["content"]["application/json"]["schema"]["$ref"]
     assert "APIErrorResponse" in ref
+
+
+def test_step_9_api_contracts():
+    """
+    Step 9 — API Contracts:
+    Verify presence and contract of all 7 operations:
+    1. Create: POST /conversations/
+    2. List: GET /conversations/
+    3. Get: GET /conversations/{conversation_id}
+    4. Rename: PATCH /conversations/{conversation_id}
+    5. Delete: DELETE /conversations/{conversation_id}
+    6. Messages: GET /conversations/{conversation_id}/messages
+    7. Memory: /memories/ (POST, GET) & /memories/{memory_id} (GET, PATCH, DELETE)
+    And ChatRequest carrying conversation_id.
+    """
+    schema = app.openapi()
+    paths = schema["paths"]
+    components = schema.get("components", {}).get("schemas", {})
+
+    # 1. Create thread: POST /conversations/
+    assert "post" in paths["/conversations/"]
+
+    # 2. List threads: GET /conversations/
+    assert "get" in paths["/conversations/"]
+
+    # 3. Get thread (reopen): GET /conversations/{conversation_id}
+    assert "get" in paths["/conversations/{conversation_id}"]
+
+    # 4. Rename thread (change title, no message mutation): PATCH /conversations/{conversation_id}
+    assert "patch" in paths["/conversations/{conversation_id}"]
+
+    # 5. Delete thread (safe message cleanup): DELETE /conversations/{conversation_id}
+    assert "delete" in paths["/conversations/{conversation_id}"]
+
+    # 6. Messages (load history in deterministic order): GET /conversations/{conversation_id}/messages
+    assert "get" in paths["/conversations/{conversation_id}/messages"]
+
+    # 7. Memory CRUD endpoints: manage durable memory with strict scope isolation
+    assert "post" in paths["/memories/"]
+    assert "get" in paths["/memories/"]
+    assert "get" in paths["/memories/{memory_id}"]
+    assert "patch" in paths["/memories/{memory_id}"]
+    assert "delete" in paths["/memories/{memory_id}"]
+
+    # 8. Chat contract: carry conversation_id when continuing an existing thread
+    chat_request_props = components["ChatRequest"]["properties"]
+    assert "conversation_id" in chat_request_props
+    assert "workspace_id" in chat_request_props
+    assert "user_id" in chat_request_props
+
+    chat_response_props = components["ChatResponse"]["properties"]
+    assert "conversation_id" in chat_response_props
