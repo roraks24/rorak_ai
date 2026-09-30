@@ -12,6 +12,7 @@ from backend.models.db import (
     Conversation,
     Message,
     IngestionJob,
+    Memory,
 )
 from backend.repositories import (
     UserRepository,
@@ -22,6 +23,7 @@ from backend.repositories import (
     ConversationRepository,
     MessageRepository,
     IngestionJobRepository,
+    MemoryRepository,
 )
 
 
@@ -392,6 +394,7 @@ def test_repositories_nonexistent_lookups(db_session):
     assert ConversationRepository(db_session).get_by_id(fake_id) is None
     assert MessageRepository(db_session).get_by_id(fake_id) is None
     assert IngestionJobRepository(db_session).get_by_id(fake_id) is None
+    assert MemoryRepository(db_session).get_by_id(fake_id) is None
 
 
 def test_foreign_key_delete_protection(db_session):
@@ -683,4 +686,67 @@ def test_ingestion_job_cleanup_v2_2(db_session):
     finally:
         d_repo.delete(doc)
         w_repo.delete(ws)
+        db_session.commit()
+
+
+def test_memory_repository(db_session):
+    """Verify MemoryRepository CRUD and scoped query operations."""
+    u_repo = UserRepository(db_session)
+    w_repo = WorkspaceRepository(db_session)
+    mem_repo = MemoryRepository(db_session)
+
+    user = u_repo.create(User(id=uuid.uuid4(), email=f"mem_user_{uuid.uuid4().hex[:6]}@example.com"))
+    ws = w_repo.create(Workspace(id=uuid.uuid4(), name=f"Mem_WS_{uuid.uuid4().hex[:6]}"))
+    db_session.commit()
+
+    try:
+        mem1 = mem_repo.create(Memory(
+            id=uuid.uuid4(),
+            user_id=user.id,
+            workspace_id=ws.id,
+            content="User prefers Python over JavaScript",
+            memory_type="preference",
+        ))
+        mem2 = mem_repo.create(Memory(
+            id=uuid.uuid4(),
+            user_id=user.id,
+            workspace_id=None,
+            content="User is a senior ML engineer",
+            memory_type="profile",
+        ))
+        db_session.commit()
+
+        # Get by id
+        found = mem_repo.get_by_id(mem1.id)
+        assert found is not None
+        assert found.content == "User prefers Python over JavaScript"
+
+        # Get by user
+        user_mems = mem_repo.get_by_user(user.id)
+        assert len(user_mems) == 2
+
+        # Get by workspace
+        ws_mems = mem_repo.get_by_workspace(ws.id)
+        assert len(ws_mems) == 1
+        assert ws_mems[0].id == mem1.id
+
+        # Scoped memories
+        scoped = mem_repo.get_scoped_memories(user_id=user.id, workspace_id=ws.id)
+        assert len(scoped) == 2
+
+        # Counts
+        assert mem_repo.count_by_user(user.id) == 2
+        assert mem_repo.count_by_workspace(ws.id) == 1
+
+        # Delete
+        mem_repo.delete(mem1)
+        mem_repo.delete(mem2)
+        db_session.commit()
+
+        assert mem_repo.get_by_id(mem1.id) is None
+        assert mem_repo.get_by_id(mem2.id) is None
+
+    finally:
+        w_repo.delete(ws)
+        u_repo.delete(user)
         db_session.commit()

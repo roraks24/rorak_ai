@@ -5,9 +5,9 @@ from typing import Optional
 from groq import Groq
 
 from backend.core.config import GROQ_API_KEY, GROQ_MODEL, RERANK_TOP_K
-from backend.rag.prompts import prompt_func, general_prompt_func
+from backend.rag.prompts import general_prompt_func, prompt_func, stateful_prompt_func
 from backend.services.reranker import rerank_func
-from backend.services.retriever import retriev_func, context_func
+from backend.services.retriever import context_func, retriev_func
 
 
 logger = logging.getLogger(__name__)
@@ -51,12 +51,17 @@ def _call_groq_completion(prompt: str) -> Optional[str]:
     return response.choices[0].message.content
 
 
-def chat_func(query: str) -> str:
+def chat_func(
+    query: str,
+    conversation_history: Optional[list] = None,
+    memory_context: Optional[list] = None,
+) -> str:
     """
-    Execute AI generation:
-    1. If document context is available in vector store, retrieve and rerank for grounded answering.
-    2. If no documents exist, respond helpfully as general AI knowledge assistant (greetings, explanations, questions).
-    3. Call Groq LLM with retry on empty response.
+    Execute AI generation with stateful context assembly:
+    1. Retrieve and rerank document context from vector store when available.
+    2. Incorporate bounded conversation history and durable memories when provided.
+    3. Separate system instructions, memory, history, context, and query.
+    4. Call Groq LLM with retry on empty response.
     """
     if not GROQ_API_KEY:
         raise RuntimeError(
@@ -74,9 +79,10 @@ def chat_func(query: str) -> str:
         results = []
     t_retrieval_ms = (time.perf_counter() - t0) * 1000
 
-    # Step 2: Prompt selection (Grounded vs General)
+    # Step 2: Extract document context if grounded
+    context = None
+    t_rerank_ms = 0.0
     if results:
-        # Grounded RAG mode
         t0 = time.perf_counter()
         try:
             reranked_results = rerank_func(
@@ -92,16 +98,45 @@ def chat_func(query: str) -> str:
             context = context_func(reranked_documents)
         t_rerank_ms = (time.perf_counter() - t0) * 1000
 
-        if context and context.strip():
-            prompt = prompt_func(query, context)
-        else:
-            prompt = general_prompt_func(query)
+    # Step 3: Format conversation history and memory if provided
+    formatted_history = None
+    if conversation_history:
+        formatted_history = []
+        for turn in conversation_history:
+            if isinstance(turn, dict):
+                formatted_history.append(turn)
+            else:
+                formatted_history.append({
+                    "role": getattr(turn, "role", "user"),
+                    "content": getattr(turn, "content", str(turn)),
+                })
+
+    formatted_memories = None
+    if memory_context:
+        formatted_memories = []
+        for mem in memory_context:
+            if isinstance(mem, str):
+                formatted_memories.append(mem)
+            else:
+                formatted_memories.append(getattr(mem, "content", str(mem)))
+
+    # Step 4: Prompt assembly
+    if formatted_history or formatted_memories:
+        # Stateful Chat Context Assembly (V2.3)
+        prompt = stateful_prompt_func(
+            query=query,
+            context=context,
+            history=formatted_history,
+            memories=formatted_memories,
+        )
+    elif context and context.strip():
+        # Document-grounded single query prompt
+        prompt = prompt_func(query, context)
     else:
-        # General Assistant mode (no document uploaded / vector store empty)
-        t_rerank_ms = 0.0
+        # General Assistant mode
         prompt = general_prompt_func(query)
 
-    # Step 3: LLM Generation with 1 retry on empty response
+    # Step 5: LLM Generation with 1 retry on empty response
     answer = None
     try:
         raw_answer = _call_groq_completion(prompt)

@@ -11,6 +11,7 @@ from backend.models.db.workspace import Workspace
 from backend.models.schemas import MessageRole
 from backend.repositories.conversation_repository import ConversationRepository
 from backend.repositories.message_repository import MessageRepository
+from backend.repositories.memory_repository import MemoryRepository
 from backend.services.exceptions import (
     ConversationNotFound,
     UserNotFound,
@@ -36,11 +37,15 @@ class ConversationService:
         db: Session,
         repository: ConversationRepository | None = None,
         message_repository: MessageRepository | None = None,
+        memory_repository: MemoryRepository | None = None,
     ):
         self.db = db
         self.repository = repository or ConversationRepository(db)
         self.message_repository = (
             message_repository or MessageRepository(db)
+        )
+        self.memory_repository = (
+            memory_repository or MemoryRepository(db)
         )
 
     # ------------------------------------------------------------------
@@ -406,13 +411,21 @@ class ConversationService:
         user_content: str,
         workspace_id: UUID | None = None,
         user_id: UUID | None = None,
+        history_limit: int = 10,
+        memory_limit: int = 5,
     ) -> tuple[Message, Message]:
         """
-        Resolve and validate conversation before adding a message.
-        Generates assistant response and uses deliberate transaction
-        boundaries so failed requests do not leave misleading partial state.
-        Updates conversation.updated_at.
+        Step 6 — Stateful Chat Context Assembly:
+        11. Identify the conversation from the request.
+        12. Persist the user message according to the chosen transaction strategy.
+        13. Load a bounded recent history window (do not inject entire lifetime conversation).
+        14. Retrieve relevant durable memory for the correct scope.
+        15. Run existing RAG retrieval path when request is grounded.
+        16. Keep system instructions separate from user content and retrieved text.
+        17. Generate the assistant response.
+        18. Persist the assistant message only after successful generation.
         """
+        # 11. Identify the conversation from the request
         conversation = self.get_conversation(
             conversation_id=conversation_id,
             workspace_id=workspace_id,
@@ -431,8 +444,23 @@ class ConversationService:
                 "Message content cannot exceed 10000 characters."
             )
 
+        # 13. Load a bounded recent history window before adding current turn
+        bounded_history = self.message_repository.get_recent_for_context(
+            conversation_id=conversation.id,
+            workspace_id=conversation.workspace_id,
+            user_id=conversation.user_id,
+            limit=history_limit,
+        )
+
+        # 14. Retrieve relevant durable memory for the correct scope
+        scoped_memories = self.memory_repository.get_scoped_memories(
+            user_id=conversation.user_id,
+            workspace_id=conversation.workspace_id,
+            limit=memory_limit,
+        )
+
         try:
-            # 1. Stage user message
+            # 12. Persist user message within deliberate transaction boundary
             user_message = Message(
                 id=uuid4(),
                 conversation_id=conversation.id,
@@ -441,8 +469,12 @@ class ConversationService:
             )
             self.message_repository.create(user_message)
 
-            # 2. Generate assistant response
-            answer = chat_func(clean_content)
+            # 15, 16, 17. Execute grounded RAG, assemble stateful context, generate response
+            answer = chat_func(
+                query=clean_content,
+                conversation_history=bounded_history,
+                memory_context=scoped_memories,
+            )
 
             if not answer:
                 raise ValidationError(
@@ -456,7 +488,7 @@ class ConversationService:
                     "Assistant response exceeds maximum message length."
                 )
 
-            # 3. Stage assistant message
+            # 18. Persist assistant message only after successful generation
             assistant_message = Message(
                 id=uuid4(),
                 conversation_id=conversation.id,
@@ -465,10 +497,10 @@ class ConversationService:
             )
             self.message_repository.create(assistant_message)
 
-            # 4. Update conversation.updated_at
+            # Update conversation.updated_at
             conversation.updated_at = datetime.now(timezone.utc)
 
-            # 5. Commit atomic transaction boundary
+            # Commit atomic transaction boundary
             self.db.commit()
 
             self.db.refresh(user_message)
