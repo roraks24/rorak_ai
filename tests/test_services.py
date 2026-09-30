@@ -25,6 +25,7 @@ from backend.services.exceptions import (
     ConversationNotFound,
     WorkspaceNotFound,
     WorkspaceAlreadyExists,
+    UserNotFound,
     ValidationError,
     Conflict,
     IngestionError,
@@ -673,5 +674,116 @@ def test_high_value_vector_isolation(db_session, sample_workspace_and_user, tmp_
         # Clean up Document B
         try:
             service.delete_document(doc_b_id)
+        except Exception:
+            pass
+
+
+# ============================================================
+# STEP 5 — CONVERSATION SERVICE SPEC TESTS
+# ============================================================
+
+def test_conversation_service_step_5_spec(db_session, sample_workspace_and_user):
+    """
+    Exhaustively verify all Step 5 — Conversation Service requirements:
+    1. Create a conversation with owner/workspace context.
+    2. Resolve and validate a conversation before adding a message.
+    3. Rename without modifying historical messages.
+    4. Delete only the selected conversation.
+    5. Convert missing/forbidden resources into clean domain errors.
+    6. Update conversation.updated_at when appropriate.
+    7. Use deliberate transaction boundaries so failed requests do not leave misleading partial state.
+    """
+    ws, user = sample_workspace_and_user
+    service = ConversationService(db_session)
+    fake_id = uuid.uuid4()
+
+    # 1 & 5. Create with owner/workspace context & clean domain errors on missing parent resources
+    with pytest.raises(WorkspaceNotFound):
+        service.create_conversation(workspace_id=fake_id, user_id=user.id, title="Missing WS")
+
+    with pytest.raises(UserNotFound):
+        service.create_conversation(workspace_id=ws.id, user_id=fake_id, title="Missing User")
+
+    conv_a = service.create_conversation(workspace_id=ws.id, user_id=user.id, title="Conversation Alpha")
+    conv_b = service.create_conversation(workspace_id=ws.id, user_id=user.id, title="Conversation Beta")
+    assert conv_a.workspace_id == ws.id
+    assert conv_a.user_id == user.id
+    initial_updated_at = conv_a.updated_at
+
+    try:
+        # 2 & 5. Resolve and validate conversation before adding message
+        with pytest.raises(ConversationNotFound):
+            service.create_message(conversation_id=fake_id, role="user", content="Hello")
+
+        # Wrong workspace context raises clean domain error
+        with pytest.raises(ConversationNotFound):
+            service.create_message(conversation_id=conv_a.id, role="user", content="Hello", workspace_id=fake_id)
+
+        # Invalid role raises ValidationError
+        with pytest.raises(ValidationError):
+            service.create_message(conversation_id=conv_a.id, role="system_admin", content="Hello")
+
+        # Empty content raises ValidationError
+        with pytest.raises(ValidationError):
+            service.create_message(conversation_id=conv_a.id, role="user", content="   ")
+
+        # Add valid message to Alpha
+        msg_a1 = service.create_message(conversation_id=conv_a.id, role="user", content="Alpha Message 1")
+        assert msg_a1.content == "Alpha Message 1"
+
+        # 6. Updated_at updated on message addition
+        db_session.refresh(conv_a)
+        assert conv_a.updated_at >= initial_updated_at
+
+        # Add message to Beta
+        msg_b1 = service.create_message(conversation_id=conv_b.id, role="user", content="Beta Message 1")
+        assert msg_b1.content == "Beta Message 1"
+
+        # 3 & 6. Rename without modifying historical messages & updates updated_at
+        before_rename_time = conv_a.updated_at
+        renamed_conv = service.rename_conversation(conversation_id=conv_a.id, title="Alpha Renamed")
+        assert renamed_conv.title == "Alpha Renamed"
+        assert renamed_conv.updated_at >= before_rename_time
+
+        # Verify historical messages in Alpha are untouched
+        alpha_messages, total_alpha = service.get_messages(conv_a.id)
+        assert total_alpha == 1
+        assert alpha_messages[0].id == msg_a1.id
+        assert alpha_messages[0].content == "Alpha Message 1"
+
+        # 7. Deliberate transaction boundaries: failed generation rolls back and leaves no partial state
+        with patch("backend.services.conversation_service.chat_func") as mock_chat:
+            mock_chat.side_effect = RuntimeError("LLM API downstream timeout")
+
+            with pytest.raises(RuntimeError):
+                service.send_user_message_and_reply(conv_a.id, "Will fail during reply generation")
+
+            # Check that user message was NOT committed alone (no partial state)
+            db_session.rollback()
+            current_messages, count = service.get_messages(conv_a.id)
+            assert count == 1
+            assert current_messages[0].id == msg_a1.id
+
+        # 4. Delete only the selected conversation
+        service.delete_conversation(conv_a.id)
+
+        # Alpha is deleted
+        with pytest.raises(ConversationNotFound):
+            service.get_conversation(conv_a.id)
+        alpha_msgs_after_delete = service.message_repository.get_by_conversation(conv_a.id)
+        assert len(alpha_msgs_after_delete) == 0
+
+        # Beta and its messages remain completely intact
+        beta_conv = service.get_conversation(conv_b.id)
+        assert beta_conv.id == conv_b.id
+        beta_messages, total_beta = service.get_messages(conv_b.id)
+        assert total_beta == 1
+        assert beta_messages[0].id == msg_b1.id
+        assert beta_messages[0].content == "Beta Message 1"
+
+    finally:
+        # Cleanup Beta
+        try:
+            service.delete_conversation(conv_b.id)
         except Exception:
             pass

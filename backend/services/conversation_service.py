@@ -1,16 +1,21 @@
 import logging
+from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 from sqlalchemy.orm import Session
 
 from backend.models.db.conversation import Conversation
 from backend.models.db.message import Message
+from backend.models.db.users import User
+from backend.models.db.workspace import Workspace
 from backend.models.schemas import MessageRole
 from backend.repositories.conversation_repository import ConversationRepository
 from backend.repositories.message_repository import MessageRepository
 from backend.services.exceptions import (
     ConversationNotFound,
+    UserNotFound,
     ValidationError,
+    WorkspaceNotFound,
 )
 from backend.services.generator import chat_func
 
@@ -22,8 +27,8 @@ VALID_ROLES = {role.value for role in MessageRole}
 
 class ConversationService:
     """
-    Coordinates conversation lifecycle, message history, validation,
-    and RAG generation integration.
+    Coordinates conversation lifecycle, message history,
+    validation, workspace isolation, and RAG generation integration.
     """
 
     def __init__(
@@ -34,56 +39,102 @@ class ConversationService:
     ):
         self.db = db
         self.repository = repository or ConversationRepository(db)
-        self.message_repository = message_repository or MessageRepository(db)
+        self.message_repository = (
+            message_repository or MessageRepository(db)
+        )
 
-    def get_conversation(self, conversation_id: UUID) -> Conversation:
-        """Retrieve conversation by ID or raise ConversationNotFound."""
-        conv = self.repository.get_by_id(conversation_id)
-        if not conv:
-            raise ConversationNotFound(f"Conversation with ID {conversation_id} was not found.")
-        return conv
+    # ------------------------------------------------------------------
+    # Conversation lookup
+    # ------------------------------------------------------------------
+
+    def get_conversation(
+        self,
+        conversation_id: UUID,
+        workspace_id: UUID | None = None,
+        user_id: UUID | None = None,
+    ) -> Conversation:
+        """
+        Resolve a conversation, optionally validating workspace and owner context.
+        Converts missing/forbidden lookups into clean domain errors.
+        """
+        conversation = self.repository.get_by_id(conversation_id)
+
+        if conversation is None:
+            raise ConversationNotFound(
+                f"Conversation with ID {conversation_id} was not found."
+            )
+
+        if workspace_id is not None and conversation.workspace_id != workspace_id:
+            raise ConversationNotFound(
+                f"Conversation with ID {conversation_id} was not found in workspace {workspace_id}."
+            )
+
+        if user_id is not None and conversation.user_id != user_id:
+            raise ConversationNotFound(
+                f"Conversation with ID {conversation_id} was not found for user {user_id}."
+            )
+
+        return conversation
+
+    # ------------------------------------------------------------------
+    # Conversation listing
+    # ------------------------------------------------------------------
 
     def list_workspace_conversations(
         self,
         workspace_id: UUID,
+        user_id: UUID | None = None,
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[Conversation], int]:
-        """List conversations in a workspace with pagination."""
-        if page < 1:
-            raise ValidationError("Page number must be >= 1.")
-        if page_size < 1 or page_size > 100:
-            raise ValidationError("Page size must be between 1 and 100.")
+        """List conversations inside a workspace with pagination."""
+        self._validate_pagination(page, page_size)
 
         skip = (page - 1) * page_size
-        convs = self.repository.get_by_workspace_paginated(
+
+        conversations = self.repository.get_by_workspace_paginated(
             workspace_id=workspace_id,
-            skip=skip,
-            limit=page_size,
-        )
-        total = self.repository.count_by_workspace(workspace_id)
-        return convs, total
-
-    def list_user_conversations(
-        self,
-        user_id: UUID,
-        page: int = 1,
-        page_size: int = 20,
-    ) -> tuple[list[Conversation], int]:
-        """List conversations for a user with pagination."""
-        if page < 1:
-            raise ValidationError("Page number must be >= 1.")
-        if page_size < 1 or page_size > 100:
-            raise ValidationError("Page size must be between 1 and 100.")
-
-        skip = (page - 1) * page_size
-        convs = self.repository.get_by_user_paginated(
             user_id=user_id,
             skip=skip,
             limit=page_size,
         )
-        total = self.repository.count_by_user(user_id)
-        return convs, total
+
+        total = self.repository.count_by_workspace(
+            workspace_id=workspace_id,
+            user_id=user_id,
+        )
+
+        return conversations, total
+
+    def list_user_conversations(
+        self,
+        user_id: UUID,
+        workspace_id: UUID | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[Conversation], int]:
+        """List conversations for a user with pagination."""
+        self._validate_pagination(page, page_size)
+
+        skip = (page - 1) * page_size
+
+        conversations = self.repository.get_by_user_paginated(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            skip=skip,
+            limit=page_size,
+        )
+
+        total = self.repository.count_by_user(
+            user_id=user_id,
+            workspace_id=workspace_id,
+        )
+
+        return conversations, total
+
+    # ------------------------------------------------------------------
+    # Conversation creation
+    # ------------------------------------------------------------------
 
     def create_conversation(
         self,
@@ -91,112 +142,363 @@ class ConversationService:
         user_id: UUID,
         title: str,
     ) -> Conversation:
-        """Create a new conversation record."""
+        """
+        Create a conversation with owner/workspace context.
+        Converts missing workspace/user into clean domain errors.
+        """
         clean_title = title.strip() if title else ""
-        if not clean_title:
-            raise ValidationError("Conversation title cannot be empty.")
-        if len(clean_title) > 255:
-            raise ValidationError("Conversation title exceeds maximum length of 255 characters.")
 
-        conv = Conversation(
+        if not clean_title:
+            raise ValidationError(
+                "Conversation title cannot be empty."
+            )
+
+        if len(clean_title) > 255:
+            raise ValidationError(
+                "Conversation title exceeds maximum length of 255 characters."
+            )
+
+        # Validate owner and workspace existence to convert missing resources into clean domain errors
+        ws = self.db.get(Workspace, workspace_id)
+        if ws is None:
+            raise WorkspaceNotFound(
+                f"Workspace with ID {workspace_id} was not found."
+            )
+
+        user = self.db.get(User, user_id)
+        if user is None:
+            raise UserNotFound(
+                f"User with ID {user_id} was not found."
+            )
+
+        conversation = Conversation(
             id=uuid4(),
             workspace_id=workspace_id,
             user_id=user_id,
             title=clean_title,
         )
-        self.repository.create(conv)
-        self.db.commit()
-        self.db.refresh(conv)
-        return conv
 
-    def delete_conversation(self, conversation_id: UUID) -> None:
-        """Delete a conversation and its messages."""
-        conv = self.get_conversation(conversation_id)
-        messages = self.message_repository.get_by_conversation(conversation_id)
-        for msg in messages:
-            self.message_repository.delete(msg)
-        self.repository.delete(conv)
-        self.db.commit()
+        try:
+            self.repository.create(conversation)
+            self.db.commit()
+            self.db.refresh(conversation)
+            return conversation
+        except Exception:
+            self.db.rollback()
+            raise
+
+    # ------------------------------------------------------------------
+    # Conversation rename
+    # ------------------------------------------------------------------
+
+    def rename_conversation(
+        self,
+        conversation_id: UUID,
+        title: str,
+        workspace_id: UUID | None = None,
+        user_id: UUID | None = None,
+    ) -> Conversation:
+        """
+        Rename a conversation without modifying historical messages.
+        Updates conversation.updated_at.
+        """
+        conversation = self.get_conversation(
+            conversation_id=conversation_id,
+            workspace_id=workspace_id,
+            user_id=user_id,
+        )
+
+        clean_title = title.strip() if title else ""
+
+        if not clean_title:
+            raise ValidationError(
+                "Conversation title cannot be empty."
+            )
+
+        if len(clean_title) > 255:
+            raise ValidationError(
+                "Conversation title exceeds maximum length of 255 characters."
+            )
+
+        try:
+            conversation.title = clean_title
+            conversation.updated_at = datetime.now(timezone.utc)
+            self.repository.update_title(
+                conversation=conversation,
+                title=clean_title,
+            )
+            self.db.commit()
+            self.db.refresh(conversation)
+            return conversation
+        except Exception:
+            self.db.rollback()
+            raise
+
+    # ------------------------------------------------------------------
+    # Conversation deletion
+    # ------------------------------------------------------------------
+
+    def delete_conversation(
+        self,
+        conversation_id: UUID,
+        workspace_id: UUID | None = None,
+        user_id: UUID | None = None,
+    ) -> None:
+        """
+        Delete only the selected conversation and its messages.
+        """
+        conversation = self.get_conversation(
+            conversation_id=conversation_id,
+            workspace_id=workspace_id,
+            user_id=user_id,
+        )
+
+        try:
+            # Delete messages belonging specifically to this conversation
+            self.message_repository.delete_by_conversation(conversation.id)
+            self.repository.delete(conversation)
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
+
+    # ------------------------------------------------------------------
+    # Message retrieval
+    # ------------------------------------------------------------------
 
     def get_messages(
         self,
         conversation_id: UUID,
+        workspace_id: UUID | None = None,
+        user_id: UUID | None = None,
         page: int = 1,
         page_size: int = 50,
     ) -> tuple[list[Message], int]:
-        """Retrieve paginated messages for a conversation."""
-        # Ensure conversation exists
-        self.get_conversation(conversation_id)
+        """
+        Retrieve paginated messages for a validated conversation.
+        """
+        self._validate_pagination(page, page_size)
 
-        if page < 1:
-            raise ValidationError("Page number must be >= 1.")
-        if page_size < 1 or page_size > 100:
-            raise ValidationError("Page size must be between 1 and 100.")
+        # Resolve and validate the conversation first
+        self.get_conversation(
+            conversation_id=conversation_id,
+            workspace_id=workspace_id,
+            user_id=user_id,
+        )
 
         skip = (page - 1) * page_size
+
         messages = self.message_repository.get_by_conversation_paginated(
             conversation_id=conversation_id,
+            workspace_id=workspace_id,
+            user_id=user_id,
             skip=skip,
             limit=page_size,
         )
-        total = self.message_repository.count_by_conversation(conversation_id)
+
+        total = self.message_repository.count_by_conversation(
+            conversation_id=conversation_id,
+            workspace_id=workspace_id,
+            user_id=user_id,
+        )
+
         return messages, total
+
+    # ------------------------------------------------------------------
+    # Message creation
+    # ------------------------------------------------------------------
 
     def create_message(
         self,
         conversation_id: UUID,
         role: str | MessageRole,
         content: str,
+        workspace_id: UUID | None = None,
+        user_id: UUID | None = None,
     ) -> Message:
-        """Validate and create a message in a conversation."""
-        # Ensure conversation exists
-        self.get_conversation(conversation_id)
+        """
+        Resolve and validate conversation before adding a message.
+        Updates conversation.updated_at.
+        """
+        conversation = self.get_conversation(
+            conversation_id=conversation_id,
+            workspace_id=workspace_id,
+            user_id=user_id,
+        )
 
-        role_str = role.value if isinstance(role, MessageRole) else str(role).lower().strip()
+        role_str = (
+            role.value
+            if isinstance(role, MessageRole)
+            else str(role).lower().strip()
+        )
+
         if role_str not in VALID_ROLES:
             raise ValidationError(
                 f"Invalid message role '{role}'. Allowed roles: {sorted(list(VALID_ROLES))}."
             )
 
         clean_content = content.strip() if content else ""
+
         if not clean_content:
-            raise ValidationError("Message content cannot be empty.")
+            raise ValidationError(
+                "Message content cannot be empty."
+            )
+
         if len(clean_content) > 10000:
-            raise ValidationError("Message content cannot exceed 10000 characters.")
+            raise ValidationError(
+                "Message content cannot exceed 10000 characters."
+            )
 
         message = Message(
             id=uuid4(),
-            conversation_id=conversation_id,
+            conversation_id=conversation.id,
             role=role_str,
             content=clean_content,
         )
-        self.message_repository.create(message)
-        self.db.commit()
-        self.db.refresh(message)
-        return message
+
+        try:
+            self.message_repository.create(message)
+            conversation.updated_at = datetime.now(timezone.utc)
+            self.db.commit()
+            self.db.refresh(message)
+            return message
+        except Exception:
+            self.db.rollback()
+            raise
+
+    # ------------------------------------------------------------------
+    # Recent generation context
+    # ------------------------------------------------------------------
+
+    def get_recent_messages_for_context(
+        self,
+        conversation_id: UUID,
+        workspace_id: UUID | None = None,
+        user_id: UUID | None = None,
+        limit: int = 20,
+    ) -> list[Message]:
+        """Return recent messages for LLM generation context."""
+        if limit < 1 or limit > 100:
+            raise ValidationError(
+                "Context message limit must be between 1 and 100."
+            )
+
+        self.get_conversation(
+            conversation_id=conversation_id,
+            workspace_id=workspace_id,
+            user_id=user_id,
+        )
+
+        return self.message_repository.get_recent_for_context(
+            conversation_id=conversation_id,
+            workspace_id=workspace_id,
+            user_id=user_id,
+            limit=limit,
+        )
+
+    # ------------------------------------------------------------------
+    # User message + assistant response
+    # ------------------------------------------------------------------
 
     def send_user_message_and_reply(
         self,
         conversation_id: UUID,
         user_content: str,
+        workspace_id: UUID | None = None,
+        user_id: UUID | None = None,
     ) -> tuple[Message, Message]:
         """
-        Create user message, run RAG generation via chat_func(),
-        and persist assistant response.
+        Resolve and validate conversation before adding a message.
+        Generates assistant response and uses deliberate transaction
+        boundaries so failed requests do not leave misleading partial state.
+        Updates conversation.updated_at.
         """
-        user_msg = self.create_message(
+        conversation = self.get_conversation(
             conversation_id=conversation_id,
-            role=MessageRole.USER,
-            content=user_content,
+            workspace_id=workspace_id,
+            user_id=user_id,
         )
 
-        # Call existing RAG generator
-        answer = chat_func(user_msg.content)
+        clean_content = user_content.strip() if user_content else ""
 
-        assistant_msg = self.create_message(
-            conversation_id=conversation_id,
-            role=MessageRole.ASSISTANT,
-            content=answer,
-        )
+        if not clean_content:
+            raise ValidationError(
+                "Message content cannot be empty."
+            )
 
-        return user_msg, assistant_msg
+        if len(clean_content) > 10000:
+            raise ValidationError(
+                "Message content cannot exceed 10000 characters."
+            )
+
+        try:
+            # 1. Stage user message
+            user_message = Message(
+                id=uuid4(),
+                conversation_id=conversation.id,
+                role=MessageRole.USER.value,
+                content=clean_content,
+            )
+            self.message_repository.create(user_message)
+
+            # 2. Generate assistant response
+            answer = chat_func(clean_content)
+
+            if not answer:
+                raise ValidationError(
+                    "The assistant returned an empty response."
+                )
+
+            answer = str(answer).strip()
+
+            if len(answer) > 10000:
+                raise ValidationError(
+                    "Assistant response exceeds maximum message length."
+                )
+
+            # 3. Stage assistant message
+            assistant_message = Message(
+                id=uuid4(),
+                conversation_id=conversation.id,
+                role=MessageRole.ASSISTANT.value,
+                content=answer,
+            )
+            self.message_repository.create(assistant_message)
+
+            # 4. Update conversation.updated_at
+            conversation.updated_at = datetime.now(timezone.utc)
+
+            # 5. Commit atomic transaction boundary
+            self.db.commit()
+
+            self.db.refresh(user_message)
+            self.db.refresh(assistant_message)
+
+            return user_message, assistant_message
+
+        except Exception:
+            self.db.rollback()
+            logger.exception(
+                "Failed to process message for conversation %s",
+                conversation_id,
+            )
+            raise
+
+    # ------------------------------------------------------------------
+    # Validation helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _validate_pagination(
+        page: int,
+        page_size: int,
+    ) -> None:
+        if page < 1:
+            raise ValidationError(
+                "Page number must be >= 1."
+            )
+
+        if page_size < 1 or page_size > 100:
+            raise ValidationError(
+                "Page size must be between 1 and 100."
+            )
