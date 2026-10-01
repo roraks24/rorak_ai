@@ -1,7 +1,7 @@
 """
 Document parsing and ingestion package.
 
-Rorak AI V2.5 Step 1: Canonical DocumentParser interfaces, registry, and adapters.
+Rorak AI V2.5: Canonical DocumentParser interfaces, registry, and format adapters.
 """
 from backend.parsers.base import DocumentParser, ParsedDocument, StructuredBlock
 from backend.parsers.registry import (
@@ -11,9 +11,15 @@ from backend.parsers.registry import (
     default_parser_registry,
 )
 from backend.parsers.adapters.pdf import PDFDocumentParser
+from backend.parsers.adapters.docx import DocxDocumentParser
+from backend.parsers.adapters.txt import TextDocumentParser
+from backend.parsers.adapters.markdown import MarkdownDocumentParser
 
 # Automatically register built-in adapters with the default registry
 default_parser_registry.register(PDFDocumentParser())
+default_parser_registry.register(DocxDocumentParser())
+default_parser_registry.register(TextDocumentParser())
+default_parser_registry.register(MarkdownDocumentParser())
 
 __all__ = [
     "DocumentParser",
@@ -24,4 +30,7 @@ __all__ = [
     "ParserError",
     "UnsupportedFormatError",
     "PDFDocumentParser",
+    "DocxDocumentParser",
+    "TextDocumentParser",
+    "MarkdownDocumentParser",
 ]

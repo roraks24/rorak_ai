@@ -10,6 +10,9 @@ from backend.parsers import (
     ParserError,
     UnsupportedFormatError,
     PDFDocumentParser,
+    DocxDocumentParser,
+    TextDocumentParser,
+    MarkdownDocumentParser,
 )
 
 __all__ = [
@@ -21,4 +24,7 @@ __all__ = [
     "ParserError",
     "UnsupportedFormatError",
     "PDFDocumentParser",
+    "DocxDocumentParser",
+    "TextDocumentParser",
+    "MarkdownDocumentParser",
 ]

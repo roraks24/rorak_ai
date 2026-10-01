@@ -32,21 +32,28 @@ MIME_TO_FORMAT: Dict[str, str] = {
     "text/x-markdown": "md",
     "text/html": "html",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+    "application/docx": "docx",
     "application/msword": "doc",
     "application/json": "json",
     "text/csv": "csv",
+}
+
+FORMAT_ALIASES: Dict[str, str] = {
+    "markdown": "md",
+    "text": "txt",
 }
 
 
 def normalize_format(file_type: str) -> str:
     """
     Normalize format string by stripping whitespace, leading dots, and lowercasing.
-    Handles MIME types if passed directly.
+    Handles MIME types and format aliases if passed directly.
     """
     cleaned = file_type.strip().lower()
     if cleaned in MIME_TO_FORMAT:
         return MIME_TO_FORMAT[cleaned]
-    return cleaned.lstrip(".")
+    ext = cleaned.lstrip(".")
+    return FORMAT_ALIASES.get(ext, ext)
 
 
 class ParserRegistry:
