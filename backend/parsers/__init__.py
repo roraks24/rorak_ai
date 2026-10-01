@@ -14,12 +14,14 @@ from backend.parsers.adapters.pdf import PDFDocumentParser
 from backend.parsers.adapters.docx import DocxDocumentParser
 from backend.parsers.adapters.txt import TextDocumentParser
 from backend.parsers.adapters.markdown import MarkdownDocumentParser
+from backend.parsers.adapters.csv import CSVDocumentParser
 
 # Automatically register built-in adapters with the default registry
 default_parser_registry.register(PDFDocumentParser())
 default_parser_registry.register(DocxDocumentParser())
 default_parser_registry.register(TextDocumentParser())
 default_parser_registry.register(MarkdownDocumentParser())
+default_parser_registry.register(CSVDocumentParser())
 
 __all__ = [
     "DocumentParser",
@@ -33,4 +35,5 @@ __all__ = [
     "DocxDocumentParser",
     "TextDocumentParser",
     "MarkdownDocumentParser",
+    "CSVDocumentParser",
 ]

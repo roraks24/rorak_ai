@@ -13,6 +13,7 @@ from backend.parsers import (
     DocxDocumentParser,
     TextDocumentParser,
     MarkdownDocumentParser,
+    CSVDocumentParser,
 )
 
 __all__ = [
@@ -27,4 +28,5 @@ __all__ = [
     "DocxDocumentParser",
     "TextDocumentParser",
     "MarkdownDocumentParser",
+    "CSVDocumentParser",
 ]
