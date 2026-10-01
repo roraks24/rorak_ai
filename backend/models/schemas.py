@@ -247,7 +247,10 @@ class DocumentListResponse(BaseModel):
 
 class CreateConversationRequest(BaseModel):
     workspace_id: UUID
-    user_id: UUID
+    user_id: Optional[UUID] = Field(
+        default=None,
+        description="Deprecated: Identity is resolved securely from JWT token",
+    )
     title: str = Field(
         ...,
         min_length=1,
@@ -338,7 +341,10 @@ class IngestionJobResponse(BaseModel):
 # ============================================================
 
 class CreateMemoryRequest(BaseModel):
-    user_id: UUID
+    user_id: Optional[UUID] = Field(
+        default=None,
+        description="Deprecated: Identity is resolved securely from JWT token",
+    )
     workspace_id: Optional[UUID] = None
     content: str = Field(
         ...,
@@ -386,3 +392,33 @@ class MemoryResponse(BaseModel):
 class MemoryListResponse(BaseModel):
     memories: list[MemoryResponse]
     pagination: Pagination
+
+
+# ============================================================
+# USER & AUTHENTICATION SCHEMAS (V2.6)
+# ============================================================
+
+class UserResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    email: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class RegisterRequest(BaseModel):
+    email: str = Field(..., description="User email address")
+    password: str = Field(..., description="User password")
+
+
+class LoginRequest(BaseModel):
+    email: str = Field(..., description="User email address")
+    password: str = Field(..., description="User password")
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: Optional[int] = None
+    user: UserResponse

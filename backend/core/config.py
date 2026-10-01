@@ -75,6 +75,17 @@ ALLOWED_EXTENSIONS = {".pdf"}
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
 
+# Authentication & JWT configuration
+JWT_SECRET_KEY = os.getenv(
+    "JWT_SECRET_KEY",
+    "rorak-ai-v2.6-insecure-default-secret-key-change-in-prod"
+)
+JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(
+    os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", str(60 * 24))
+)
+
+
 # Validation
 if not GROQ_API_KEY:
     logging.warning(

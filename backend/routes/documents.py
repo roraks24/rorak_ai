@@ -14,9 +14,12 @@ from fastapi import (
 )
 from sqlalchemy.orm import Session
 
+from backend.core.auth import get_current_user, verify_workspace_access
 from backend.core.database import get_db
+from backend.models.db import User
 from backend.models.db.document import Document
 from backend.models.schemas import (
+    APIErrorResponse,
     DocumentListResponse,
     DocumentResponse,
     DocumentUploadResponse,
@@ -53,6 +56,12 @@ router = APIRouter(
     "/upload",
     response_model=DocumentUploadResponse,
     status_code=status.HTTP_201_CREATED,
+    responses={
+        400: {"model": APIErrorResponse, "description": "Validation Error"},
+        401: {"model": APIErrorResponse, "description": "Unauthorized"},
+        403: {"model": APIErrorResponse, "description": "Forbidden"},
+        404: {"model": APIErrorResponse, "description": "Workspace Not Found"},
+    },
 )
 async def upload_document(
     workspace_id: UUID = Query(
@@ -60,13 +69,14 @@ async def upload_document(
         description="Workspace that will own the document",
     ),
     file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
     Upload and ingest a document into a workspace.
-
-    Current V2.2 implementation supports PDF documents.
+    Requires workspace membership.
     """
+    verify_workspace_access(workspace_id=workspace_id, user_id=current_user.id, db=db)
 
     if not file.filename:
         raise HTTPException(
@@ -93,10 +103,7 @@ async def upload_document(
     temporary_path: Path | None = None
 
     try:
-        # --------------------------------------------------------
         # Save uploaded file to a temporary location.
-        # --------------------------------------------------------
-
         with NamedTemporaryFile(
             suffix=".pdf",
             delete=False,
@@ -123,10 +130,7 @@ async def upload_document(
                     chunk
                 )
 
-        # --------------------------------------------------------
         # Delegate complete ingestion workflow to the service.
-        # --------------------------------------------------------
-
         document, job, chunk_count = (
             service.ingest_document(
                 workspace_id=workspace_id,
@@ -159,13 +163,7 @@ async def upload_document(
         ) from exc
 
     finally:
-        # --------------------------------------------------------
         # Remove temporary upload.
-        #
-        # The permanent artifact was already saved by
-        # DocumentService.ingest_document().
-        # --------------------------------------------------------
-
         if temporary_path is not None:
             try:
                 temporary_path.unlink(
@@ -194,6 +192,12 @@ async def upload_document(
     "/",
     response_model=DocumentListResponse,
     status_code=status.HTTP_200_OK,
+    responses={
+        400: {"model": APIErrorResponse, "description": "Validation Error"},
+        401: {"model": APIErrorResponse, "description": "Unauthorized"},
+        403: {"model": APIErrorResponse, "description": "Forbidden"},
+        404: {"model": APIErrorResponse, "description": "Workspace Not Found"},
+    },
 )
 def get_workspace_documents(
     workspace_id: UUID = Query(
@@ -211,11 +215,14 @@ def get_workspace_documents(
         le=100,
         description="Number of documents per page",
     ),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
     List documents belonging to a workspace.
+    Requires workspace membership.
     """
+    verify_workspace_access(workspace_id=workspace_id, user_id=current_user.id, db=db)
 
     service = DocumentService(db)
 
@@ -265,21 +272,30 @@ def get_workspace_documents(
     "/{document_id}",
     response_model=DocumentResponse,
     status_code=status.HTTP_200_OK,
+    responses={
+        401: {"model": APIErrorResponse, "description": "Unauthorized"},
+        403: {"model": APIErrorResponse, "description": "Forbidden"},
+        404: {"model": APIErrorResponse, "description": "Document Not Found"},
+    },
 )
 def get_document(
     document_id: UUID,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
     Get a single document by ID.
+    Requires workspace membership.
     """
-
     service = DocumentService(db)
 
     try:
         document = service.get_document(
             document_id
         )
+
+        # Validate access to the owning workspace
+        verify_workspace_access(workspace_id=document.workspace_id, user_id=current_user.id, db=db)
 
         return _document_response(
             document
@@ -300,25 +316,35 @@ def get_document(
     "/{document_id}",
     response_model=DocumentResponse,
     status_code=status.HTTP_200_OK,
+    responses={
+        400: {"model": APIErrorResponse, "description": "Validation Error"},
+        401: {"model": APIErrorResponse, "description": "Unauthorized"},
+        403: {"model": APIErrorResponse, "description": "Forbidden"},
+        404: {"model": APIErrorResponse, "description": "Document Not Found"},
+    },
 )
 def rename_document(
     document_id: UUID,
     request: RenameDocumentRequest,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
     Rename the user-facing display name of a document.
-
-    This must not:
-    - reindex the document
-    - change the original filename
-    - change the checksum
-    - change the storage key
+    Requires workspace membership.
     """
+    if not request.display_name or not request.display_name.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Display name cannot be empty.",
+        )
 
     service = DocumentService(db)
 
     try:
+        document = service.get_document(document_id)
+        verify_workspace_access(workspace_id=document.workspace_id, user_id=current_user.id, db=db)
+
         document = service.rename_document(
             document_id=document_id,
             display_name=request.display_name,
@@ -348,18 +374,27 @@ def rename_document(
 @router.delete(
     "/{document_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        401: {"model": APIErrorResponse, "description": "Unauthorized"},
+        403: {"model": APIErrorResponse, "description": "Forbidden"},
+        404: {"model": APIErrorResponse, "description": "Document Not Found"},
+    },
 )
 def delete_document(
     document_id: UUID,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
     Delete one document and all associated resources.
+    Requires workspace membership.
     """
-
     service = DocumentService(db)
 
     try:
+        document = service.get_document(document_id)
+        verify_workspace_access(workspace_id=document.workspace_id, user_id=current_user.id, db=db)
+
         service.delete_document(
             document_id
         )

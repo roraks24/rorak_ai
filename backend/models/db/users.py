@@ -1,3 +1,4 @@
+from typing import Optional
 from uuid import uuid4
 from sqlalchemy import String, DateTime, func
 from sqlalchemy.dialects.postgresql import UUID
@@ -19,6 +20,11 @@ class User(Base):
         unique=True,
         index=True,
         nullable=False
+    )
+
+    password_hash: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True
     )
 
     created_at: Mapped[DateTime] = mapped_column(

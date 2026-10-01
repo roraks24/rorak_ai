@@ -12,6 +12,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from backend.core.config import LOG_LEVEL
 from backend.core.logging import setup_logging
 from backend.routes import (
+    auth,
     chat,
     conversations,
     documents,
@@ -321,6 +322,10 @@ def root():
 # ============================================================
 # ROUTES
 # ============================================================
+
+app.include_router(
+    auth.router
+)
 
 app.include_router(
     health.router

@@ -4,7 +4,18 @@ from fastapi.testclient import TestClient
 
 from backend.main import app
 from backend.core.database import get_db
-from backend.models.db import User, Workspace
+from backend.core.security import create_access_token
+from backend.models.db import (
+    Conversation,
+    Document,
+    DocumentChunk,
+    IngestionJob,
+    Memory,
+    Message,
+    User,
+    Workspace,
+    WorkspaceMember,
+)
 
 
 client = TestClient(app)
@@ -28,77 +39,97 @@ def db_session():
 def setup_user_and_workspace(db_session):
     user = User(id=uuid.uuid4(), email=f"api_test_{uuid.uuid4()}@example.com")
     ws = Workspace(id=uuid.uuid4(), name=f"API_WS_{uuid.uuid4().hex[:8]}")
+    member = WorkspaceMember(workspace_id=ws.id, user_id=user.id, role="owner")
     db_session.add(user)
     db_session.add(ws)
+    db_session.add(member)
     db_session.commit()
-    yield ws, user
 
-    # Cleanup
-    from backend.models.db import DocumentChunk, IngestionJob, Document, Message, Conversation, WorkspaceMember, Memory
-    db_session.query(Memory).filter((Memory.workspace_id == ws.id) | (Memory.user_id == user.id)).delete(synchronize_session=False)
-    doc_ids = [d.id for d in db_session.query(Document).filter(Document.workspace_id == ws.id).all()]
-    if doc_ids:
-        db_session.query(DocumentChunk).filter(DocumentChunk.document_id.in_(doc_ids)).delete(synchronize_session=False)
-        db_session.query(IngestionJob).filter(IngestionJob.document_id.in_(doc_ids)).delete(synchronize_session=False)
-        db_session.query(Document).filter(Document.workspace_id == ws.id).delete(synchronize_session=False)
-    conv_ids = [c.id for c in db_session.query(Conversation).filter(Conversation.workspace_id == ws.id).all()]
-    if conv_ids:
-        db_session.query(Message).filter(Message.conversation_id.in_(conv_ids)).delete(synchronize_session=False)
-        db_session.query(Conversation).filter(Conversation.workspace_id == ws.id).delete(synchronize_session=False)
-    db_session.query(WorkspaceMember).filter(WorkspaceMember.workspace_id == ws.id).delete(synchronize_session=False)
-    db_session.query(Workspace).filter(Workspace.id == ws.id).delete(synchronize_session=False)
-    db_session.query(User).filter(User.id == user.id).delete(synchronize_session=False)
-    db_session.commit()
+    token = create_access_token(data={"sub": str(user.id), "email": user.email})
+    old_auth = client.headers.get("Authorization")
+    client.headers["Authorization"] = f"Bearer {token}"
+
+    try:
+        yield ws, user
+    finally:
+        if old_auth:
+            client.headers["Authorization"] = old_auth
+        else:
+            client.headers.pop("Authorization", None)
+
+        # Cleanup
+        db_session.query(Memory).filter((Memory.workspace_id == ws.id) | (Memory.user_id == user.id)).delete(synchronize_session=False)
+        doc_ids = [d.id for d in db_session.query(Document).filter(Document.workspace_id == ws.id).all()]
+        if doc_ids:
+            db_session.query(DocumentChunk).filter(DocumentChunk.document_id.in_(doc_ids)).delete(synchronize_session=False)
+            db_session.query(IngestionJob).filter(IngestionJob.document_id.in_(doc_ids)).delete(synchronize_session=False)
+            db_session.query(Document).filter(Document.workspace_id == ws.id).delete(synchronize_session=False)
+        conv_ids = [c.id for c in db_session.query(Conversation).filter(Conversation.workspace_id == ws.id).all()]
+        if conv_ids:
+            db_session.query(Message).filter(Message.conversation_id.in_(conv_ids)).delete(synchronize_session=False)
+            db_session.query(Conversation).filter(Conversation.workspace_id == ws.id).delete(synchronize_session=False)
+        db_session.query(WorkspaceMember).filter(WorkspaceMember.workspace_id == ws.id).delete(synchronize_session=False)
+        db_session.query(Workspace).filter(Workspace.id == ws.id).delete(synchronize_session=False)
+        db_session.query(User).filter(User.id == user.id).delete(synchronize_session=False)
+        db_session.commit()
 
 
 # ============================================================
 # WORKSPACE API TESTS
 # ============================================================
 
-def test_workspace_api_crud():
+def test_workspace_api_crud(db_session):
+    user = User(id=uuid.uuid4(), email=f"ws_crud_{uuid.uuid4().hex[:8]}@example.com")
+    db_session.add(user)
+    db_session.commit()
+    token = create_access_token(data={"sub": str(user.id), "email": user.email})
+    headers = {"Authorization": f"Bearer {token}"}
     ws_name = f"API_Test_WS_{uuid.uuid4().hex[:8]}"
 
     # Create workspace
-    resp = client.post("/workspaces/", json={"name": ws_name})
+    resp = client.post("/workspaces/", json={"name": ws_name}, headers=headers)
     assert resp.status_code == 201
     data = resp.json()
     assert data["name"] == ws_name
     ws_id = data["id"]
 
     # Duplicate name fails with 409
-    resp_dup = client.post("/workspaces/", json={"name": ws_name})
+    resp_dup = client.post("/workspaces/", json={"name": ws_name}, headers=headers)
     assert resp_dup.status_code == 409
 
     # Validation failure: empty name
-    resp_empty = client.post("/workspaces/", json={"name": ""})
+    resp_empty = client.post("/workspaces/", json={"name": ""}, headers=headers)
     assert resp_empty.status_code == 422
 
     # Get workspace by ID
-    resp_get = client.get(f"/workspaces/{ws_id}")
+    resp_get = client.get(f"/workspaces/{ws_id}", headers=headers)
     assert resp_get.status_code == 200
     assert resp_get.json()["id"] == ws_id
 
     # List workspaces
-    resp_list = client.get("/workspaces/")
+    resp_list = client.get("/workspaces/", headers=headers)
     assert resp_list.status_code == 200
     assert resp_list.json()["pagination"]["total"] >= 1
 
     # Delete workspace
-    resp_del = client.delete(f"/workspaces/{ws_id}")
+    resp_del = client.delete(f"/workspaces/{ws_id}", headers=headers)
     assert resp_del.status_code == 200
 
     # 404 after deletion
-    resp_gone = client.get(f"/workspaces/{ws_id}")
+    resp_gone = client.get(f"/workspaces/{ws_id}", headers=headers)
     assert resp_gone.status_code == 404
 
 
-def test_workspace_members_api(setup_user_and_workspace):
-    ws, user = setup_user_and_workspace
+def test_workspace_members_api(setup_user_and_workspace, db_session):
+    ws, owner = setup_user_and_workspace
+    new_user = User(id=uuid.uuid4(), email=f"member_user_{uuid.uuid4().hex[:8]}@example.com")
+    db_session.add(new_user)
+    db_session.commit()
 
     # Add member
     resp = client.post(
         f"/workspaces/{ws.id}/members",
-        json={"user_id": str(user.id), "role": "admin"},
+        json={"user_id": str(new_user.id), "role": "admin"},
     )
     assert resp.status_code == 201
     assert resp.json()["role"] == "admin"
@@ -106,21 +137,21 @@ def test_workspace_members_api(setup_user_and_workspace):
     # Duplicate member fails with 409
     resp_dup = client.post(
         f"/workspaces/{ws.id}/members",
-        json={"user_id": str(user.id), "role": "member"},
+        json={"user_id": str(new_user.id), "role": "member"},
     )
     assert resp_dup.status_code == 409
 
     # List members
     resp_list = client.get(f"/workspaces/{ws.id}/members")
     assert resp_list.status_code == 200
-    assert len(resp_list.json()) == 1
+    assert any(m["user_id"] == str(new_user.id) for m in resp_list.json())
 
     # Remove member
-    resp_rm = client.delete(f"/workspaces/{ws.id}/members/{user.id}")
+    resp_rm = client.delete(f"/workspaces/{ws.id}/members/{new_user.id}")
     assert resp_rm.status_code == 200
 
     # Removing again fails with 400
-    resp_rm_again = client.delete(f"/workspaces/{ws.id}/members/{user.id}")
+    resp_rm_again = client.delete(f"/workspaces/{ws.id}/members/{new_user.id}")
     assert resp_rm_again.status_code == 400
 
 

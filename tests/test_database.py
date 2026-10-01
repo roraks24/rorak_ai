@@ -54,7 +54,7 @@ def test_alembic_current_revision_is_head():
     heads = script.get_heads()
     assert len(heads) == 1
     head_rev = heads[0]
-    assert head_rev == "6184867eb413"
+    assert head_rev == "8b09e014fdae"
 
     with engine.connect() as conn:
         ctx = MigrationContext.configure(conn)

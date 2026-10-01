@@ -10,18 +10,42 @@ from langchain_core.documents import Document as LCDocument
 
 from backend.main import app
 from backend.core.database import get_db
-from backend.models.db import Workspace, Document, DocumentChunk, IngestionJob
+from backend.core.security import create_access_token
+from backend.models.db import Workspace, WorkspaceMember, User, Document, DocumentChunk, IngestionJob
 
 
 client = TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+def doc_test_auth():
+    gen = get_db()
+    session = next(gen)
+    user = User(id=uuid.uuid4(), email=f"doc_auth_{uuid.uuid4().hex[:8]}@example.com")
+    session.add(user)
+    session.commit()
+    token = create_access_token(data={"sub": str(user.id), "email": user.email})
+    client.headers["Authorization"] = f"Bearer {token}"
+    try:
+        yield user
+    finally:
+        client.headers.pop("Authorization", None)
+        session.query(User).filter(User.id == user.id).delete(synchronize_session=False)
+        session.commit()
+        try:
+            next(gen)
+        except StopIteration:
+            pass
+
+
 @pytest.fixture
-def test_workspace():
+def test_workspace(doc_test_auth):
     gen = get_db()
     session = next(gen)
     ws = Workspace(id=uuid.uuid4(), name=f"DocUploadTest_WS_{uuid.uuid4().hex[:8]}")
+    member = WorkspaceMember(workspace_id=ws.id, user_id=doc_test_auth.id, role="owner")
     session.add(ws)
+    session.add(member)
     session.commit()
     try:
         yield ws
@@ -32,8 +56,13 @@ def test_workspace():
             session.query(DocumentChunk).filter(DocumentChunk.document_id.in_(doc_ids)).delete(synchronize_session=False)
             session.query(IngestionJob).filter(IngestionJob.document_id.in_(doc_ids)).delete(synchronize_session=False)
             session.query(Document).filter(Document.workspace_id == ws.id).delete(synchronize_session=False)
+        session.query(WorkspaceMember).filter(WorkspaceMember.workspace_id == ws.id).delete(synchronize_session=False)
         session.query(Workspace).filter(Workspace.id == ws.id).delete(synchronize_session=False)
         session.commit()
+        try:
+            next(gen)
+        except StopIteration:
+            pass
 
 
 def test_upload_missing_workspace_id_rejected():
