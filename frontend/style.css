@@ -2068,3 +2068,266 @@ html, body {
 .form-col {
     flex: 1;
 }
+
+
+/* ========================================
+   Authentication UI & User Profile (V2.6)
+   ======================================== */
+
+.auth-dialog {
+    max-width: 440px;
+    padding: 28px 24px;
+    background: #141414;
+    border: 1px solid #282828;
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.9), 0 0 40px rgba(37, 99, 235, 0.08);
+}
+
+.auth-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.auth-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.auth-logo {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    object-fit: cover;
+    border: 1px solid #2e2e2e;
+}
+
+.auth-brand-text {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.auth-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: -0.01em;
+}
+
+.auth-badge {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(37, 99, 235, 0.15);
+    color: #60a5fa;
+    border: 1px solid rgba(59, 130, 246, 0.25);
+}
+
+.auth-subtitle {
+    font-size: 13px;
+    color: #888;
+    line-height: 1.5;
+    margin-bottom: 20px;
+}
+
+.auth-tabs {
+    display: flex;
+    background: #1c1c1c;
+    border: 1px solid #282828;
+    border-radius: 10px;
+    padding: 3px;
+    gap: 3px;
+    margin-bottom: 20px;
+}
+
+.auth-tab {
+    flex: 1;
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #888;
+    background: transparent;
+    border: none;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: all 0.18s ease;
+}
+
+.auth-tab:hover {
+    color: #ddd;
+}
+
+.auth-tab.active {
+    background: #282828;
+    color: #fff;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+.auth-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.input-with-icon {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.input-with-icon .input-icon {
+    position: absolute;
+    left: 12px;
+    width: 16px;
+    height: 16px;
+    color: #666;
+    pointer-events: none;
+}
+
+.input-with-icon .text-input {
+    padding-left: 38px;
+    padding-right: 38px;
+}
+
+.btn-toggle-password {
+    position: absolute;
+    right: 10px;
+    background: none;
+    border: none;
+    color: #666;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.15s ease;
+}
+
+.btn-toggle-password:hover {
+    color: #fff;
+}
+
+.btn-toggle-password svg {
+    width: 16px;
+    height: 16px;
+}
+
+.form-hint {
+    font-size: 11px;
+    color: #666;
+    margin-top: -2px;
+}
+
+.auth-submit-btn {
+    width: 100%;
+    padding: 11px 16px;
+    font-size: 14px;
+    font-weight: 600;
+    margin-top: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border-radius: 8px;
+}
+
+.auth-switch-prompt {
+    text-align: center;
+    font-size: 12px;
+    color: #777;
+    margin-top: 4px;
+}
+
+.auth-switch-prompt a {
+    color: #60a5fa;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.auth-switch-prompt a:hover {
+    text-decoration: underline;
+}
+
+/* User Profile Widget in Sidebar */
+.user-profile-widget {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 6px 8px;
+    background: #141414;
+    border: 1px solid #222;
+    border-radius: 10px;
+}
+
+.user-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.user-email {
+    display: block;
+    font-size: 12px;
+    font-weight: 500;
+    color: #d1d5db;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.btn-logout {
+    background: transparent;
+    border: none;
+    color: #6b7280;
+    cursor: pointer;
+    padding: 5px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
+}
+
+.btn-logout:hover {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.12);
+}
+
+.btn-logout svg {
+    width: 16px;
+    height: 16px;
+}
+
+.btn-signin {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 14px;
+    background: #2563eb;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.btn-signin:hover {
+    background: #1d4ed8;
+}
+
+.btn-signin svg {
+    width: 15px;
+    height: 15px;
+}
+

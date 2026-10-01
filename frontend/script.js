@@ -45,8 +45,13 @@
     var isLoading = false;
     var currentWorkspaceId = null;
     var currentUserId = null;
+    var currentUser = null;
     var activeConversationId = null;
     var activeView = "chat"; // "chat" | "docs" | "memory"
+
+    // Authentication & Storage Keys (V2.6)
+    var RORAK_TOKEN_KEY = "rorak_access_token";
+    var RORAK_USER_KEY = "rorak_user";
 
     // Document library state
     var docLibrary = {
@@ -187,6 +192,36 @@
     var docDeleteCancelBtn = document.getElementById("docDeleteCancelBtn");
     var docDeleteConfirmBtn = document.getElementById("docDeleteConfirmBtn");
 
+    // Authentication DOM (V2.6)
+    var authModal = document.getElementById("authModal");
+    var authCloseBtn = document.getElementById("authCloseBtn");
+    var authSubtitle = document.getElementById("authSubtitle");
+    var authTabLogin = document.getElementById("authTabLogin");
+    var authTabRegister = document.getElementById("authTabRegister");
+
+    var loginForm = document.getElementById("loginForm");
+    var loginEmail = document.getElementById("loginEmail");
+    var loginPassword = document.getElementById("loginPassword");
+    var loginError = document.getElementById("loginError");
+    var loginSubmitBtn = document.getElementById("loginSubmitBtn");
+    var toggleLoginPassword = document.getElementById("toggleLoginPassword");
+    var switchToRegisterLink = document.getElementById("switchToRegisterLink");
+
+    var registerForm = document.getElementById("registerForm");
+    var registerEmail = document.getElementById("registerEmail");
+    var registerPassword = document.getElementById("registerPassword");
+    var registerConfirmPassword = document.getElementById("registerConfirmPassword");
+    var registerError = document.getElementById("registerError");
+    var registerSubmitBtn = document.getElementById("registerSubmitBtn");
+    var toggleRegisterPassword = document.getElementById("toggleRegisterPassword");
+    var switchToLoginLink = document.getElementById("switchToLoginLink");
+
+    var userProfileWidget = document.getElementById("userProfileWidget");
+    var sidebarUserAvatar = document.getElementById("sidebarUserAvatar");
+    var sidebarUserEmail = document.getElementById("sidebarUserEmail");
+    var sidebarLogoutBtn = document.getElementById("sidebarLogoutBtn");
+    var sidebarSignInBtn = document.getElementById("sidebarSignInBtn");
+
     // ── SVG Templates ──
     var COPY_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
     var CHECK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
@@ -205,6 +240,22 @@
         bindEvents();
         checkHealth();
 
+        // Restore user profile from storage if available
+        var savedUserStr = localStorage.getItem(RORAK_USER_KEY);
+        if (savedUserStr) {
+            try {
+                currentUser = JSON.parse(savedUserStr);
+                currentUserId = currentUser ? currentUser.id : null;
+            } catch (e) {}
+        }
+        updateUserProfileUI();
+
+        var token = getAccessToken();
+        if (!token) {
+            showAuthModal("login");
+            return;
+        }
+
         var urlParams = new URLSearchParams(window.location.search);
         var initialConvId = urlParams.get("conversation_id");
 
@@ -221,7 +272,9 @@
                 }
             })
             .catch(function (e) {
-                console.warn("Workspace setup deferred:", e);
+                console.warn("Session initialization error:", e);
+                clearAuthSession();
+                showAuthModal("login", "Please sign in to continue.");
             });
     }
 
@@ -231,32 +284,352 @@
     }
 
     // ────────────────────────────────────────
+    //  Authentication & Token Management (V2.6)
+    // ────────────────────────────────────────
+
+    function getAccessToken() {
+        return localStorage.getItem(RORAK_TOKEN_KEY);
+    }
+
+    function setAuthSession(token, user) {
+        if (token) {
+            localStorage.setItem(RORAK_TOKEN_KEY, token);
+        }
+        if (user) {
+            currentUser = user;
+            currentUserId = user.id;
+            localStorage.setItem(RORAK_USER_KEY, JSON.stringify(user));
+            localStorage.setItem("rorak_user_id", user.id);
+        }
+        updateUserProfileUI();
+    }
+
+    function clearAuthSession() {
+        localStorage.removeItem(RORAK_TOKEN_KEY);
+        localStorage.removeItem(RORAK_USER_KEY);
+        localStorage.removeItem("rorak_user_id");
+        localStorage.removeItem("rorak_workspace_id");
+        currentUser = null;
+        currentUserId = null;
+        currentWorkspaceId = null;
+        activeConversationId = null;
+        messages = [];
+        docLibrary.documents = [];
+        conversationLibrary.conversations = [];
+        memoryLibrary.memories = [];
+        updateUserProfileUI();
+    }
+
+    function updateUserProfileUI() {
+        if (currentUser && currentUser.email) {
+            if (userProfileWidget) userProfileWidget.style.display = "flex";
+            if (sidebarSignInBtn) sidebarSignInBtn.style.display = "none";
+            if (sidebarUserEmail) {
+                sidebarUserEmail.textContent = currentUser.email;
+                sidebarUserEmail.title = currentUser.email;
+            }
+            if (sidebarUserAvatar) {
+                sidebarUserAvatar.textContent = (currentUser.email[0] || "U").toUpperCase();
+            }
+        } else {
+            if (userProfileWidget) userProfileWidget.style.display = "none";
+            if (sidebarSignInBtn) sidebarSignInBtn.style.display = "flex";
+        }
+    }
+
+    function apiFetch(url, options) {
+        options = options || {};
+        var headers = options.headers || {};
+        var token = getAccessToken();
+
+        if (typeof headers.append !== "function") {
+            options.headers = Object.assign({}, headers);
+            if (token) {
+                options.headers["Authorization"] = "Bearer " + token;
+            }
+        } else {
+            if (token) {
+                headers.set("Authorization", "Bearer " + token);
+            }
+        }
+
+        return fetch(url, options).then(function (res) {
+            if (res.status === 401) {
+                var isAuthRoute = url.indexOf("/auth/login") !== -1 || url.indexOf("/auth/register") !== -1;
+                if (!isAuthRoute) {
+                    handleUnauthorized();
+                }
+            }
+            return res;
+        });
+    }
+
+    function handleUnauthorized() {
+        clearAuthSession();
+        startNewChat(true);
+        renderConversationList();
+        renderDocumentList();
+        renderMemoryList();
+        showAuthModal("login", "Your session has expired. Please sign in again.");
+    }
+
+    // ────────────────────────────────────────
+    //  Auth Modal Controller (V2.6)
+    // ────────────────────────────────────────
+
+    function showAuthModal(tab, subtitleText) {
+        if (!authModal) return;
+        switchAuthTab(tab || "login");
+        if (subtitleText && authSubtitle) {
+            authSubtitle.textContent = subtitleText;
+        } else if (authSubtitle) {
+            authSubtitle.textContent = "Sign in to access your workspaces, documents, and conversations.";
+        }
+        if (loginError) {
+            loginError.style.display = "none";
+            loginError.textContent = "";
+        }
+        if (registerError) {
+            registerError.style.display = "none";
+            registerError.textContent = "";
+        }
+        authModal.style.display = "flex";
+        setTimeout(function () {
+            if (tab === "register" && registerEmail) {
+                registerEmail.focus();
+            } else if (loginEmail) {
+                loginEmail.focus();
+            }
+        }, 50);
+    }
+
+    function hideAuthModal() {
+        if (!authModal) return;
+        authModal.style.display = "none";
+        if (loginError) loginError.style.display = "none";
+        if (registerError) registerError.style.display = "none";
+    }
+
+    function switchAuthTab(tab) {
+        var isLogin = tab === "login";
+        if (authTabLogin) {
+            authTabLogin.classList.toggle("active", isLogin);
+            authTabLogin.setAttribute("aria-selected", isLogin ? "true" : "false");
+        }
+        if (authTabRegister) {
+            authTabRegister.classList.toggle("active", !isLogin);
+            authTabRegister.setAttribute("aria-selected", !isLogin ? "true" : "false");
+        }
+        if (loginForm) loginForm.style.display = isLogin ? "flex" : "none";
+        if (registerForm) registerForm.style.display = !isLogin ? "flex" : "none";
+        if (loginError) loginError.style.display = "none";
+        if (registerError) registerError.style.display = "none";
+    }
+
+    function togglePasswordVisibility(inputElem, toggleBtn) {
+        if (!inputElem || !toggleBtn) return;
+        var isPassword = inputElem.type === "password";
+        inputElem.type = isPassword ? "text" : "password";
+        var eyeOpen = toggleBtn.querySelector(".eye-open");
+        var eyeClosed = toggleBtn.querySelector(".eye-closed");
+        if (eyeOpen && eyeClosed) {
+            eyeOpen.style.display = isPassword ? "none" : "block";
+            eyeClosed.style.display = isPassword ? "block" : "none";
+        }
+    }
+
+    function showAuthError(elem, message) {
+        if (!elem) return;
+        elem.textContent = message;
+        elem.style.display = "block";
+    }
+
+    function setSubmitLoading(btn, isLoadingState, defaultText) {
+        if (!btn) return;
+        btn.disabled = isLoadingState;
+        var span = btn.querySelector("span") || btn;
+        span.textContent = defaultText;
+    }
+
+    function handleLoginSubmit(e) {
+        if (e) e.preventDefault();
+        var email = (loginEmail ? loginEmail.value : "").trim().toLowerCase();
+        var password = (loginPassword ? loginPassword.value : "");
+
+        if (!email || !password) {
+            showAuthError(loginError, "Please enter both email and password.");
+            return;
+        }
+
+        setSubmitLoading(loginSubmitBtn, true, "Signing in...");
+        if (loginError) loginError.style.display = "none";
+
+        fetch(API_BASE + "/auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: email, password: password })
+        })
+            .then(function (res) {
+                return res.json().then(function (data) {
+                    return { ok: res.ok, status: res.status, data: data };
+                });
+            })
+            .then(function (result) {
+                setSubmitLoading(loginSubmitBtn, false, "Sign In");
+                if (!result.ok) {
+                    var msg = "Invalid email or password.";
+                    if (result.data && result.data.detail) {
+                        if (typeof result.data.detail === "object" && result.data.detail.error) {
+                            msg = result.data.detail.error.message || msg;
+                        } else if (typeof result.data.detail === "string") {
+                            msg = result.data.detail;
+                        }
+                    }
+                    showAuthError(loginError, msg);
+                    return;
+                }
+
+                var token = result.data.access_token;
+                var user = result.data.user;
+                setAuthSession(token, user);
+                hideAuthModal();
+                if (loginPassword) loginPassword.value = "";
+                showNotification("Welcome back, " + user.email + "!");
+
+                postAuthInit();
+            })
+            .catch(function () {
+                setSubmitLoading(loginSubmitBtn, false, "Sign In");
+                showAuthError(loginError, "Network error: Unable to connect to server.");
+            });
+    }
+
+    function handleRegisterSubmit(e) {
+        if (e) e.preventDefault();
+        var email = (registerEmail ? registerEmail.value : "").trim().toLowerCase();
+        var password = (registerPassword ? registerPassword.value : "");
+        var confirmPassword = (registerConfirmPassword ? registerConfirmPassword.value : "");
+
+        var emailRegex = /^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$/;
+        if (!email || !emailRegex.test(email)) {
+            showAuthError(registerError, "Please enter a valid email address.");
+            return;
+        }
+
+        if (password.length < 8) {
+            showAuthError(registerError, "Password must be at least 8 characters long.");
+            return;
+        }
+
+        if (password !== confirmPassword) {
+            showAuthError(registerError, "Passwords do not match.");
+            return;
+        }
+
+        setSubmitLoading(registerSubmitBtn, true, "Creating account...");
+        if (registerError) registerError.style.display = "none";
+
+        fetch(API_BASE + "/auth/register", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: email, password: password })
+        })
+            .then(function (res) {
+                return res.json().then(function (data) {
+                    return { ok: res.ok, status: res.status, data: data };
+                });
+            })
+            .then(function (regResult) {
+                if (!regResult.ok) {
+                    setSubmitLoading(registerSubmitBtn, false, "Create Account");
+                    var msg = "Registration failed.";
+                    if (regResult.status === 409) {
+                        msg = "An account with this email already exists. Please sign in.";
+                    } else if (regResult.data && regResult.data.detail) {
+                        if (typeof regResult.data.detail === "object" && regResult.data.detail.error) {
+                            msg = regResult.data.detail.error.message || msg;
+                        } else if (typeof regResult.data.detail === "string") {
+                            msg = regResult.data.detail;
+                        }
+                    }
+                    showAuthError(registerError, msg);
+                    return;
+                }
+
+                // Automatically log in after registration
+                return fetch(API_BASE + "/auth/login", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ email: email, password: password })
+                })
+                    .then(function (res) { return res.json(); })
+                    .then(function (loginData) {
+                        setSubmitLoading(registerSubmitBtn, false, "Create Account");
+                        var token = loginData.access_token;
+                        var user = loginData.user;
+                        setAuthSession(token, user);
+                        hideAuthModal();
+                        if (registerPassword) registerPassword.value = "";
+                        if (registerConfirmPassword) registerConfirmPassword.value = "";
+                        showNotification("Account created! Welcome, " + user.email + "!");
+
+                        postAuthInit();
+                    });
+            })
+            .catch(function () {
+                setSubmitLoading(registerSubmitBtn, false, "Create Account");
+                showAuthError(registerError, "Network error: Unable to connect to server.");
+            });
+    }
+
+    function handleLogout() {
+        clearAuthSession();
+        startNewChat(true);
+        renderConversationList();
+        renderDocumentList();
+        renderMemoryList();
+        showNotification("Signed out successfully.");
+        showAuthModal("login", "Sign in to access your workspaces, documents, and conversations.");
+    }
+
+    function postAuthInit() {
+        ensureWorkspace()
+            .then(function () {
+                loadDocuments(1);
+                loadMemoriesCount();
+                return loadConversations();
+            })
+            .catch(function (e) {
+                console.warn("Post-auth data load deferred:", e);
+            });
+    }
+
+    // ────────────────────────────────────────
     //  User & Workspace Resolution
     // ────────────────────────────────────────
 
     function ensureUser() {
-        if (currentUserId) {
+        if (currentUser && currentUserId) {
             return Promise.resolve(currentUserId);
         }
-        var savedUserId = localStorage.getItem("rorak_user_id");
+        var token = getAccessToken();
+        if (!token) {
+            showAuthModal("login");
+            return Promise.reject(new Error("Authentication required"));
+        }
 
-        return fetch(API_BASE + "/users/default")
+        return fetch(API_BASE + "/auth/me", {
+            headers: { "Authorization": "Bearer " + token }
+        })
             .then(function (res) {
-                if (!res.ok) throw new Error("Could not resolve default user (" + res.status + ")");
+                if (!res.ok) {
+                    throw new Error("Could not resolve authenticated user (" + res.status + ")");
+                }
                 return res.json();
             })
             .then(function (user) {
-                currentUserId = user.id;
-                localStorage.setItem("rorak_user_id", currentUserId);
+                setAuthSession(token, user);
                 return currentUserId;
-            })
-            .catch(function (err) {
-                console.warn("Falling back for user resolution:", err);
-                if (savedUserId) {
-                    currentUserId = savedUserId;
-                    return currentUserId;
-                }
-                throw err;
             });
     }
 
@@ -266,9 +639,9 @@
         }
         var savedId = localStorage.getItem("rorak_workspace_id");
 
-        return fetch(API_BASE + "/workspaces/?page=1&page_size=20")
+        return apiFetch(API_BASE + "/workspaces/?page=1&page_size=20")
             .then(function (res) {
-                if (!res.ok) throw new Error("Could not list workspaces");
+                if (!res.ok) throw new Error("Could not list workspaces (" + res.status + ")");
                 return res.json();
             })
             .then(function (data) {
@@ -282,12 +655,9 @@
                     localStorage.setItem("rorak_workspace_id", currentWorkspaceId);
                     return currentWorkspaceId;
                 }
-                // Create default workspace if none exists
-                var createPayload = { name: "Default Workspace" };
-                if (currentUserId) {
-                    createPayload.owner_id = currentUserId;
-                }
-                return fetch(API_BASE + "/workspaces/", {
+                // Create personal workspace for this user
+                var createPayload = { name: "Personal Workspace" };
+                return apiFetch(API_BASE + "/workspaces/", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(createPayload)
@@ -300,7 +670,7 @@
                     });
             })
             .catch(function (err) {
-                console.warn("Falling back for workspace resolution:", err);
+                console.warn("Workspace resolution fallback:", err);
                 if (savedId) {
                     currentWorkspaceId = savedId;
                     return currentWorkspaceId;
@@ -335,6 +705,10 @@
         // File upload from chat bar
         if (uploadBtn) {
             uploadBtn.addEventListener("click", function () {
+                if (!getAccessToken()) {
+                    showAuthModal("login", "Please sign in to upload documents.");
+                    return;
+                }
                 fileInput.click();
             });
         }
@@ -361,6 +735,10 @@
         // Conversations events (Step 10)
         if (btnNewChat) {
             btnNewChat.addEventListener("click", function () {
+                if (!getAccessToken()) {
+                    showAuthModal("login", "Please sign in to start a new chat.");
+                    return;
+                }
                 startNewChat();
                 closeSidebar();
             });
@@ -403,7 +781,13 @@
             });
         }
         if (memoriesAddBtn) {
-            memoriesAddBtn.addEventListener("click", openMemoryAddModal);
+            memoriesAddBtn.addEventListener("click", function () {
+                if (!getAccessToken()) {
+                    showAuthModal("login", "Please sign in to add memories.");
+                    return;
+                }
+                openMemoryAddModal();
+            });
         }
         if (btnPrevMemPage) {
             btnPrevMemPage.addEventListener("click", function () {
@@ -433,6 +817,10 @@
         // Document Library header actions
         if (docsUploadBtn) {
             docsUploadBtn.addEventListener("click", function () {
+                if (!getAccessToken()) {
+                    showAuthModal("login", "Please sign in to upload documents.");
+                    return;
+                }
                 fileInput.click();
             });
         }
@@ -485,6 +873,63 @@
         if (docDeleteCancelBtn) docDeleteCancelBtn.addEventListener("click", closeDeleteModal);
         if (docDeleteConfirmBtn) docDeleteConfirmBtn.addEventListener("click", confirmDelete);
 
+        // Authentication Events (V2.6)
+        if (authCloseBtn) {
+            authCloseBtn.addEventListener("click", function () {
+                hideAuthModal();
+            });
+        }
+        if (authTabLogin) {
+            authTabLogin.addEventListener("click", function () {
+                switchAuthTab("login");
+            });
+        }
+        if (authTabRegister) {
+            authTabRegister.addEventListener("click", function () {
+                switchAuthTab("register");
+            });
+        }
+        if (switchToRegisterLink) {
+            switchToRegisterLink.addEventListener("click", function (e) {
+                e.preventDefault();
+                switchAuthTab("register");
+            });
+        }
+        if (switchToLoginLink) {
+            switchToLoginLink.addEventListener("click", function (e) {
+                e.preventDefault();
+                switchAuthTab("login");
+            });
+        }
+        if (loginForm) {
+            loginForm.addEventListener("submit", handleLoginSubmit);
+        }
+        if (registerForm) {
+            registerForm.addEventListener("submit", handleRegisterSubmit);
+        }
+        if (toggleLoginPassword) {
+            toggleLoginPassword.addEventListener("click", function () {
+                togglePasswordVisibility(loginPassword, toggleLoginPassword);
+            });
+        }
+        if (toggleRegisterPassword) {
+            toggleRegisterPassword.addEventListener("click", function () {
+                togglePasswordVisibility(registerPassword, toggleRegisterPassword);
+            });
+        }
+        if (sidebarSignInBtn) {
+            sidebarSignInBtn.addEventListener("click", function () {
+                showAuthModal("login");
+                closeSidebar();
+            });
+        }
+        if (sidebarLogoutBtn) {
+            sidebarLogoutBtn.addEventListener("click", function () {
+                handleLogout();
+                closeSidebar();
+            });
+        }
+
         // Backdrop click to close modals
         [
             docDetailsModal,
@@ -503,6 +948,14 @@
                 });
             }
         });
+
+        if (authModal) {
+            authModal.addEventListener("click", function (e) {
+                if (e.target === authModal && getAccessToken()) {
+                    hideAuthModal();
+                }
+            });
+        }
 
         // Browser navigation history restoration (Back / Forward)
         window.addEventListener("popstate", function (e) {
@@ -608,7 +1061,7 @@
                 var url = API_BASE + "/documents/?workspace_id=" + encodeURIComponent(wsId) +
                     "&page=" + encodeURIComponent(docLibrary.page) +
                     "&page_size=" + encodeURIComponent(docLibrary.pageSize);
-                return fetch(url);
+                return apiFetch(url);
             })
             .then(function (res) {
                 if (!res.ok) throw new Error("Failed to load documents (" + res.status + ")");
@@ -891,6 +1344,12 @@
     }
 
     function uploadDocumentFile(file) {
+        var token = getAccessToken();
+        if (!token) {
+            showAuthModal("login", "Please sign in to upload documents.");
+            return;
+        }
+
         showUploadProgress(file.name);
         if (uploadBtn) uploadBtn.disabled = true;
         if (docsUploadBtn) docsUploadBtn.disabled = true;
@@ -904,6 +1363,9 @@
                 var uploadUrl = API_BASE + "/documents/upload?workspace_id=" + encodeURIComponent(wsId);
 
                 xhr.open("POST", uploadUrl, true);
+                if (token) {
+                    xhr.setRequestHeader("Authorization", "Bearer " + token);
+                }
 
                 // Real progress tracking
                 xhr.upload.onprogress = function (event) {
@@ -917,6 +1379,11 @@
                     hideUploadProgress();
                     if (uploadBtn) uploadBtn.disabled = false;
                     if (docsUploadBtn) docsUploadBtn.disabled = false;
+
+                    if (xhr.status === 401) {
+                        handleUnauthorized();
+                        return;
+                    }
 
                     if (xhr.status >= 200 && xhr.status < 300) {
                         try {
@@ -1016,7 +1483,7 @@
         docDetailsContent.innerHTML = '<p style="color:#888;">Fetching document metadata…</p>';
         docDetailsModal.style.display = "flex";
 
-        fetch(API_BASE + "/documents/" + encodeURIComponent(documentId))
+        apiFetch(API_BASE + "/documents/" + encodeURIComponent(documentId))
             .then(function (res) {
                 if (!res.ok) throw new Error("Document not found (" + res.status + ")");
                 return res.json();
@@ -1100,7 +1567,7 @@
             docRenameSubmitBtn.textContent = "Saving…";
         }
 
-        fetch(API_BASE + "/documents/" + encodeURIComponent(doc.id), {
+        apiFetch(API_BASE + "/documents/" + encodeURIComponent(doc.id), {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ display_name: newName })
@@ -1173,7 +1640,7 @@
         }
 
         // Call per-document DELETE endpoint; never global /documents/clear
-        fetch(API_BASE + "/documents/" + encodeURIComponent(doc.id), {
+        apiFetch(API_BASE + "/documents/" + encodeURIComponent(doc.id), {
             method: "DELETE"
         })
             .then(function (res) {
@@ -1221,7 +1688,7 @@
         return ensureWorkspace()
             .then(function (wsId) {
                 var url = API_BASE + "/conversations/?workspace_id=" + encodeURIComponent(wsId) + "&page=1&page_size=50";
-                return fetch(url);
+                return apiFetch(url);
             })
             .then(function (res) {
                 if (!res.ok) throw new Error("Failed to load conversations (" + res.status + ")");
@@ -1356,7 +1823,7 @@
 
         ensureWorkspace().then(function (wsId) {
             var url = API_BASE + "/conversations/" + encodeURIComponent(convId) + "/messages?workspace_id=" + encodeURIComponent(wsId) + "&page=1&page_size=100";
-            return fetch(url);
+            return apiFetch(url);
         })
             .then(function (res) {
                 if (res.status === 404) {
@@ -1439,7 +1906,7 @@
 
         ensureWorkspace().then(function (wsId) {
             var url = API_BASE + "/conversations/" + encodeURIComponent(conv.id) + "?workspace_id=" + encodeURIComponent(wsId);
-            return fetch(url, {
+            return apiFetch(url, {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ title: newTitle })
@@ -1500,7 +1967,7 @@
 
         ensureWorkspace().then(function (wsId) {
             var url = API_BASE + "/conversations/" + encodeURIComponent(conv.id) + "?workspace_id=" + encodeURIComponent(wsId);
-            return fetch(url, { method: "DELETE" });
+            return apiFetch(url, { method: "DELETE" });
         })
             .then(function (res) {
                 if (!res.ok && res.status !== 200 && res.status !== 204) {
@@ -1537,7 +2004,7 @@
                 var url = API_BASE + "/memories/?user_id=" + encodeURIComponent(userId) +
                     "&workspace_id=" + encodeURIComponent(wsId) +
                     "&page=1&page_size=1";
-                return fetch(url);
+                return apiFetch(url);
             });
         })
             .then(function (res) {
@@ -1569,7 +2036,7 @@
                     "&include_global=true" +
                     "&page=" + encodeURIComponent(memoryLibrary.page) +
                     "&page_size=" + encodeURIComponent(memoryLibrary.pageSize);
-                return fetch(url);
+                return apiFetch(url);
             });
         })
             .then(function (res) {
@@ -1756,7 +2223,7 @@
                 var url = API_BASE + "/memories/" + encodeURIComponent(mem.id) +
                     "?user_id=" + encodeURIComponent(userId) +
                     "&workspace_id=" + encodeURIComponent(wsId);
-                return fetch(url, { method: "DELETE" });
+                return apiFetch(url, { method: "DELETE" });
             });
         })
             .then(function (res) {
@@ -1818,7 +2285,7 @@
                     memory_type: type,
                     workspace_id: (scope === "workspace" ? wsId : null)
                 };
-                return fetch(API_BASE + "/memories/", {
+                return apiFetch(API_BASE + "/memories/", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(payload)
@@ -1855,6 +2322,11 @@
     // ────────────────────────────────────────
 
     function handleSend() {
+        if (!getAccessToken()) {
+            showAuthModal("login", "Please sign in to send messages.");
+            return;
+        }
+
         var question = chatInput.value.trim();
 
         if (!question) {
@@ -1893,7 +2365,7 @@
                     payload.conversation_id = activeConversationId;
                 }
 
-                return fetch(API_BASE + "/chat/", {
+                return apiFetch(API_BASE + "/chat/", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(payload)
