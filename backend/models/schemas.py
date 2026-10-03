@@ -3,7 +3,7 @@ from enum import Enum
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 # ============================================================
@@ -216,7 +216,18 @@ class DocumentResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    workspace_id: UUID
+    user_id: UUID
+    workspace_id: Optional[UUID] = None
+    conversation_id: Optional[UUID] = None
+
+    @field_validator("conversation_id", mode="before")
+    @classmethod
+    def validate_conversation_id(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, (UUID, str)):
+            return v
+        return None
 
     filename: str
     original_filename: str
@@ -246,13 +257,16 @@ class DocumentListResponse(BaseModel):
 # ============================================================
 
 class CreateConversationRequest(BaseModel):
-    workspace_id: UUID
+    workspace_id: Optional[UUID] = Field(
+        default=None,
+        description="Deprecated: Workspaces are no longer used",
+    )
     user_id: Optional[UUID] = Field(
         default=None,
         description="Deprecated: Identity is resolved securely from JWT token",
     )
     title: str = Field(
-        ...,
+        default="New Chat",
         min_length=1,
         max_length=255,
         description="Conversation title",
@@ -272,8 +286,8 @@ class ConversationResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    workspace_id: UUID
     user_id: UUID
+    workspace_id: Optional[UUID] = None
 
     title: str
 
@@ -403,6 +417,7 @@ class UserResponse(BaseModel):
 
     id: UUID
     email: str
+    name: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -410,6 +425,7 @@ class UserResponse(BaseModel):
 class RegisterRequest(BaseModel):
     email: str = Field(..., description="User email address")
     password: str = Field(..., description="User password")
+    name: Optional[str] = Field(None, max_length=100, description="User full name")
 
 
 class LoginRequest(BaseModel):

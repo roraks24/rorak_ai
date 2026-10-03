@@ -7,26 +7,24 @@ from sqlalchemy.orm import Session
 from backend.models.db.memory import Memory
 from backend.repositories.memory_repository import MemoryRepository
 from backend.repositories.user_repository import UserRepository
-from backend.repositories.workspace_repository import WorkspaceRepository
 from backend.services.exceptions import (
     MemoryNotFound,
     UserNotFound,
     ValidationError,
-    WorkspaceNotFound,
 )
 
 logger = logging.getLogger(__name__)
 
 # Patterns to detect sensitive information (credentials, secrets, tokens)
 SENSITIVE_PATTERNS = [
-    (r"(?i)\b(?:password|passwd|pwd|secret)\s*[:=]\s*\S+", "password/secret"),
+    (r"(?i)\b(?:password|passwd|pwd|secret)\s*(?:is|[:=])\s*\S+", "password/secret"),
     (r"\bsk-[A-Za-z0-9_-]{20,}\b", "OpenAI API key"),
     (r"\bsk-ant-[A-Za-z0-9_-]{20,}\b", "Anthropic API key"),
     (r"\bAKIA[0-9A-Z]{16}\b", "AWS access key"),
     (r"\bgh[pousr]_[A-Za-z0-9]{36,}\b", "GitHub token"),
     (r"(?i)\bbearer\s+[a-zA-Z0-9_\-\.]{20,}\b", "Bearer token"),
     (r"-----BEGIN\s+(?:[A-Z0-9_-]+\s+)?PRIVATE\s+KEY-----", "Private key"),
-    (r"(?i)\b(?:api[_-]?key|access[_-]?token|auth[_-]?token)\s*[:=]\s*['\"]?[a-zA-Z0-9_\-\.]{16,}['\"]?", "API token"),
+    (r"(?i)\b(?:api[_-]?key|access[_-]?token|auth[_-]?token)\s*(?:is|[:=])\s*['\"]?[a-zA-Z0-9_\-\.]{16,}['\"]?", "API token"),
 ]
 
 
@@ -44,12 +42,8 @@ def detect_sensitive_information(text: str) -> list[str]:
 
 class MemoryService:
     """
-    Coordinates durable long-term memory operations with strict ownership enforcement,
-    visibility scoping, sensitive information filtering, and deterministic retrieval.
-
-    Design distinction:
-    - Conversation history answers: 'What was said in this thread?'
-    - Long-term memory answers: 'What durable information should Rorak retain?'
+    Coordinates durable long-term memory operations with strict user ownership enforcement,
+    sensitive information filtering, and deterministic retrieval.
     """
 
     def __init__(
@@ -57,24 +51,16 @@ class MemoryService:
         db: Session,
         memory_repository: MemoryRepository | None = None,
         user_repository: UserRepository | None = None,
-        workspace_repository: WorkspaceRepository | None = None,
     ):
         self.db = db
         self.memory_repo = memory_repository or MemoryRepository(db)
         self.user_repo = user_repository or UserRepository(db)
-        self.workspace_repo = workspace_repository or WorkspaceRepository(db)
 
     def _validate_user_exists(self, user_id: UUID) -> None:
         """Validate that user exists in database."""
         user = self.user_repo.get_by_id(user_id)
         if not user:
             raise UserNotFound(f"User with ID {user_id} was not found.")
-
-    def _validate_workspace_exists(self, workspace_id: UUID) -> None:
-        """Validate that workspace exists in database."""
-        workspace = self.workspace_repo.get_by_id(workspace_id)
-        if not workspace:
-            raise WorkspaceNotFound(f"Workspace with ID {workspace_id} was not found.")
 
     def _validate_content_and_type(
         self,
@@ -114,17 +100,13 @@ class MemoryService:
         user_id: UUID,
         content: str,
         memory_type: str = "preference",
-        workspace_id: UUID | None = None,
         allow_sensitive: bool = False,
     ) -> Memory:
         """
-        Create a durable long-term memory record.
-        Strictly enforces user ownership and workspace scoping.
+        Create a durable long-term memory record scoped to a user.
         Rejects sensitive data by default.
         """
         self._validate_user_exists(user_id)
-        if workspace_id is not None:
-            self._validate_workspace_exists(workspace_id)
 
         clean_content, clean_type = self._validate_content_and_type(
             content=content,
@@ -135,7 +117,6 @@ class MemoryService:
         memory = Memory(
             id=uuid4(),
             user_id=user_id,
-            workspace_id=workspace_id,
             content=clean_content or "",
             memory_type=clean_type or "preference",
         )
@@ -144,10 +125,9 @@ class MemoryService:
         self.db.commit()
         self.db.refresh(memory)
         logger.info(
-            "Created durable memory %s for user %s (workspace: %s, type: %s)",
+            "Created durable memory %s for user %s (type: %s)",
             memory.id,
             user_id,
-            workspace_id,
             memory.memory_type,
         )
         return memory
@@ -156,39 +136,30 @@ class MemoryService:
         self,
         memory_id: UUID,
         user_id: UUID | None = None,
-        workspace_id: UUID | None = None,
     ) -> Memory:
         """
-        Retrieve a memory by ID with strict ownership and scope validation.
-        Prevents leaking another user's or workspace's memories.
+        Retrieve a memory by ID with strict ownership validation.
+        Prevents leaking another user's memories.
         """
         memory = self.memory_repo.get_by_id(memory_id)
         if not memory:
             raise MemoryNotFound(f"Memory with ID {memory_id} was not found.")
 
-        # Visibility Rule 1: Never retrieve another user's memory
+        # Visibility Rule: Never retrieve another user's memory
         if user_id is not None and memory.user_id != user_id:
             raise MemoryNotFound(f"Memory with ID {memory_id} was not found.")
-
-        # Visibility Rule 2: Never retrieve another workspace's memory
-        if workspace_id is not None:
-            if memory.workspace_id is not None and memory.workspace_id != workspace_id:
-                raise MemoryNotFound(f"Memory with ID {memory_id} was not found.")
 
         return memory
 
     def list_memories(
         self,
         user_id: UUID,
-        workspace_id: UUID | None = None,
         memory_type: str | None = None,
-        include_global: bool = True,
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[Memory], int]:
         """
-        List durable memories scoped to user and optionally workspace.
-        Enforces strict isolation rules and pagination.
+        List durable memories scoped to user.
         """
         if page < 1:
             raise ValidationError("Page number must be >= 1.")
@@ -196,25 +167,19 @@ class MemoryService:
             raise ValidationError("Page size must be between 1 and 100.")
 
         self._validate_user_exists(user_id)
-        if workspace_id is not None:
-            self._validate_workspace_exists(workspace_id)
 
         skip = (page - 1) * page_size
         clean_type = memory_type.strip() if memory_type else None
 
         memories = self.memory_repo.list_scoped_memories(
             user_id=user_id,
-            workspace_id=workspace_id,
             memory_type=clean_type,
-            include_global=include_global,
             skip=skip,
             limit=page_size,
         )
         total = self.memory_repo.count_scoped_memories(
             user_id=user_id,
-            workspace_id=workspace_id,
             memory_type=clean_type,
-            include_global=include_global,
         )
         return memories, total
 
@@ -224,7 +189,6 @@ class MemoryService:
         content: str | None = None,
         memory_type: str | None = None,
         user_id: UUID | None = None,
-        workspace_id: UUID | None = None,
         allow_sensitive: bool = False,
     ) -> Memory:
         """
@@ -233,7 +197,7 @@ class MemoryService:
         if content is None and memory_type is None:
             raise ValidationError("At least one field (content or memory_type) must be provided to update.")
 
-        memory = self.get_memory(memory_id=memory_id, user_id=user_id, workspace_id=workspace_id)
+        memory = self.get_memory(memory_id=memory_id, user_id=user_id)
 
         clean_content, clean_type = self._validate_content_and_type(
             content=content,
@@ -255,12 +219,11 @@ class MemoryService:
         self,
         memory_id: UUID,
         user_id: UUID | None = None,
-        workspace_id: UUID | None = None,
     ) -> None:
         """
-        Delete a durable memory record with strict ownership and scope checks.
+        Delete a durable memory record with strict ownership checks.
         """
-        memory = self.get_memory(memory_id=memory_id, user_id=user_id, workspace_id=workspace_id)
+        memory = self.get_memory(memory_id=memory_id, user_id=user_id)
         self.memory_repo.delete(memory)
         self.db.commit()
         logger.info("Deleted durable memory %s", memory_id)
@@ -268,18 +231,15 @@ class MemoryService:
     def get_generation_memories(
         self,
         user_id: UUID,
-        workspace_id: UUID | None = None,
         limit: int = 5,
     ) -> list[Memory]:
         """
         Deterministic retrieval for RAG generation context according to strict visibility rules:
         - Never retrieve another user's memory.
-        - Never retrieve another workspace's memory.
         - Returns newest durable memories first.
         - SQL-based only (no vector memory).
         """
         return self.memory_repo.get_scoped_memories(
             user_id=user_id,
-            workspace_id=workspace_id,
             limit=limit,
         )

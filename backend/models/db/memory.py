@@ -24,13 +24,6 @@ class Memory(Base):
         index=True
     )
 
-    workspace_id: Mapped[UUID | None] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("workspaces.id"),
-        nullable=True,
-        index=True
-    )
-
     content: Mapped[str] = mapped_column(
         Text,
         nullable=False

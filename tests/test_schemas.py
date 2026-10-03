@@ -133,10 +133,12 @@ def test_document_schemas():
     """Verify document response and list contracts."""
     now = datetime.now(timezone.utc)
     doc_id = uuid.uuid4()
+    user_id = uuid.uuid4()
     ws_id = uuid.uuid4()
 
     doc = DocumentResponse(
         id=doc_id,
+        user_id=user_id,
         workspace_id=ws_id,
         filename="report.pdf",
         original_filename="Q3_Report.pdf",
@@ -314,11 +316,13 @@ def test_document_upload_response_schema():
     """Verify DocumentUploadResponse structure with document, ingestion_job, and chunk_count."""
     now = datetime.now(timezone.utc)
     doc_id = uuid.uuid4()
+    user_id = uuid.uuid4()
     ws_id = uuid.uuid4()
     job_id = uuid.uuid4()
 
     doc_resp = DocumentResponse(
         id=doc_id,
+        user_id=user_id,
         workspace_id=ws_id,
         filename="notes.pdf",
         original_filename="My_Notes.pdf",
@@ -361,10 +365,12 @@ def test_document_response_orm_serialization():
 
     now = datetime.now(timezone.utc)
     doc_id = uuid.uuid4()
+    user_id = uuid.uuid4()
     ws_id = uuid.uuid4()
 
     orm_doc = Mock()
     orm_doc.id = doc_id
+    orm_doc.user_id = user_id
     orm_doc.workspace_id = ws_id
     orm_doc.filename = "report.pdf"
     orm_doc.original_filename = "Quarterly_Report.pdf"
@@ -381,6 +387,7 @@ def test_document_response_orm_serialization():
 
     resp = DocumentResponse.model_validate(orm_doc)
     assert resp.id == doc_id
+    assert resp.user_id == user_id
     assert resp.workspace_id == ws_id
     assert resp.display_name == "Quarterly Report"
     assert resp.original_filename == "Quarterly_Report.pdf"

@@ -102,47 +102,115 @@ rorak.rag/
 │   └── workflows/
 │       └── ci.yml                # GitHub Actions automated test workflow (Python 3.11 & 3.12)
 │
+├── alembic/                      # Database schema migration environment
+│   ├── env.py                    # Alembic runtime environment and SQLAlchemy Base binding
+│   ├── script.py.mako            # Migration template script
+│   └── versions/                 # Versioned migration revision scripts
+│       ├── b56ab54c4f90_create_v2_1_foundation_schema.py
+│       ├── 6184867eb413_feat_add_v2_2_document_lifecycle_fields.py
+│       └── 8b09e014fdae_add_password_hash_to_users_table.py
+│
 ├── backend/                      # Core FastAPI application package
 │   ├── __init__.py               # Marks directory as a Python package
 │   ├── main.py                   # FastAPI app factory, middleware, lifecycle, & route mounting
 │   ├── core/                     # Fundamental application utilities
 │   │   ├── __init__.py           # Core package marker
+│   │   ├── auth.py               # Authentication dependencies (get_current_user, workspace verification)
 │   │   ├── config.py             # Settings, environment variable loading, & global constants
-│   │   └── logging.py            # Structured logging and API key redaction filter
-│   ├── models/                   # Pydantic schemas and API contracts
+│   │   ├── database.py           # SQLAlchemy engine, session maker, and Base model
+│   │   ├── logging.py            # Structured logging and API key redaction filter
+│   │   └── security.py           # Password hashing (bcrypt) and JWT token generation/validation
+│   ├── models/                   # Schemas and Database ORM definitions
 │   │   ├── __init__.py           # Models package marker
-│   │   └── schemas.py            # Request/Response models and OpenAPI validation specs
+│   │   ├── schemas.py            # Pydantic V2 Request/Response validation models
+│   │   └── db/                   # SQLAlchemy ORM database models
+│   │       ├── __init__.py       # Database models package marker
+│   │       ├── conversation.py   # Conversation ORM entity
+│   │       ├── document.py       # Document ORM entity with lifecycle fields
+│   │       ├── document_chunk.py # DocumentChunk ORM entity linking to vector index
+│   │       ├── ingestion_job.py  # IngestionJob ORM entity tracking parsing/indexing state
+│   │       ├── memory.py         # Memory ORM entity (User and Workspace scopes)
+│   │       ├── message.py        # Message ORM entity (Conversation thread history)
+│   │       ├── user.py           # User ORM entity with password_hash
+│   │       ├── workspace.py      # Workspace ORM entity
+│   │       └── workspace_member.py # WorkspaceMember ORM entity with role isolation
+│   ├── parsers/                  # Canonical document parser engine (V2.5)
+│   │   ├── __init__.py           # Parsers package marker
+│   │   ├── base.py               # DocumentParser ABC, ParsedDocument, and StructuredBlock
+│   │   ├── registry.py           # Thread-safe ParserRegistry for MIME/extension dispatch
+│   │   └── adapters/             # Extensible format-specific parsing adapters
+│   │       ├── __init__.py       # Adapters package marker
+│   │       ├── csv.py            # Table-aware CSV adapter with rich row-context representation
+│   │       ├── docx.py           # DOCX adapter with heading hierarchy and table extraction
+│   │       ├── markdown.py       # Markdown adapter with ATX heading paths and fenced code metadata
+│   │       ├── pdf.py            # PDF adapter with pypdf and fallback extraction
+│   │       └── txt.py            # TXT adapter with multi-encoding (UTF-8, CP1252, Latin-1) support
 │   ├── rag/                      # RAG foundation (Embeddings, Prompts, & Vector Storage)
 │   │   ├── __init__.py           # RAG package marker
 │   │   ├── embeddings.py         # HuggingFace sentence transformer embedding model instance
-│   │   ├── prompts.py            # XML-sandboxed prompt templates and injection hardening
+│   │   ├── prompts.py            # XML-sandboxed prompt templates (single-query, general, stateful)
 │   │   └── vector_store.py       # Thread-safe FAISS CPU vector store manager and disk persistence
+│   ├── repositories/             # Data access repository layer (SQLAlchemy encapsulation)
+│   │   ├── __init__.py           # Repositories package marker
+│   │   ├── conversation_repository.py
+│   │   ├── document_chunk_repository.py
+│   │   ├── document_repository.py
+│   │   ├── ingestion_job_repository.py
+│   │   ├── memory_repository.py
+│   │   ├── message_repository.py
+│   │   ├── user_repository.py
+│   │   ├── workspace_member_repository.py
+│   │   └── workspace_repository.py
 │   ├── routes/                   # FastAPI route endpoint controllers
 │   │   ├── __init__.py           # Routes package marker
-│   │   ├── chat.py               # /chat/ endpoint for conversational queries
-│   │   ├── documents.py          # /documents/upload and /documents/clear endpoints
-│   │   └── health.py             # /health/ and /ready/ Kubernetes-style probes
+│   │   ├── auth.py               # /auth/register, /auth/login, /auth/me
+│   │   ├── chat.py               # /chat/ stateful and grounded generation
+│   │   ├── conversations.py      # /conversations/ CRUD and message history
+│   │   ├── documents.py          # /documents/ CRUD, upload, and content
+│   │   ├── health.py             # /health/ and /ready/ Kubernetes probes
+│   │   ├── memories.py           # /memories/ CRUD and scoped listing
+│   │   ├── users.py              # /users/ user management
+│   │   └── workspaces.py         # /workspaces/ CRUD and membership management
 │   └── services/                 # Business logic and ML inference pipelines
 │       ├── __init__.py           # Services package marker
+│       ├── conversation_service.py # Stateful conversation lifecycle, history sliding window
+│       ├── document_service.py   # Document lifecycle coordination and cleanup
+│       ├── document_storage.py   # Durable file artifact storage and hashing
+│       ├── exceptions.py         # Domain error hierarchy (Conflict, NotFound, Validation)
 │       ├── generator.py          # Orchestrates retrieval, reranking, Groq LLM calls, & retries
-│       ├── ingestion.py          # Multi-strategy PDF parsing and text chunking
+│       ├── ingestion.py          # Format-agnostic document ingestion pipeline via ParserRegistry
+│       ├── memory_service.py     # Durable memory CRUD, dual scoping, sensitive info detection
 │       ├── reranker.py           # Cross-Encoder neural reranking model (Top-3 selection)
-│       └── retriever.py          # Vector similarity retrieval & document context formatter
+│       ├── retriever.py          # Vector similarity retrieval & document context formatter
+│       └── workspace_service.py  # Workspace management and membership enforcement
 │
 ├── documents/                    # Cold-start document ingestion folder and storage instructions
 │   └── README.md                 # Explains document ingestion lifecycle and privacy rules
 │
 ├── frontend/                     # Lightweight static single-page application (SPA)
 │   ├── 404.html                  # Fallback 404 page for Firebase Hosting
-│   ├── index.html                # Semantic HTML5 markup, layout, and external CDN scripts
+│   ├── index.html                # Semantic HTML5 markup, layout, auth modals, and CDN scripts
 │   ├── logo.jpg                  # Brand visual identity logo asset
-│   ├── script.js                 # Client-side state, API calls, backoff retry, & DOM rendering
+│   ├── script.js                 # Client-side state, auth flow, API calls, backoff retry, & DOM rendering
 │   └── style.css                 # Dark theme responsive stylesheet and custom variables
 │
-└── tests/                        # Automated unit and integration test suite
-    ├── test_chat.py              # Tests for chat endpoint, validation, prompt safety, & retries
-    ├── test_documents.py         # Tests for PDF upload validation, payload limits, & clearing
-    └── test_health_and_rate_limit.py # Tests for health/ready probes and sliding-window rate limiting
+└── tests/                        # Automated unit and integration test suite (172 tests)
+    ├── conftest.py               # Pytest database fixtures and shared TestClient
+    ├── test_api_contracts.py     # Conversation and message HTTP contract tests
+    ├── test_api_v2.py            # Core V2 endpoints and error responses
+    ├── test_chat.py              # Chat endpoint, validation, prompt safety, & retries
+    ├── test_database.py          # Database connection, pooling, and transaction rollback tests
+    ├── test_document_storage.py  # File artifact storage and content hashing tests
+    ├── test_documents.py         # Document upload, listing, pagination, and deletion tests
+    ├── test_health_and_rate_limit.py # Health/ready probes and sliding-window rate limiting
+    ├── test_models.py            # SQLAlchemy ORM relationships and cascade integrity
+    ├── test_parsers.py           # DocumentParser interface and registry tests
+    ├── test_repositories.py      # Repository query encapsulation and pagination tests
+    ├── test_schemas.py           # Pydantic schema validation tests
+    ├── test_security_v2_6.py     # Security isolation, JWT, and anti-spoofing tests
+    ├── test_services.py          # Business service layer and transaction boundary tests
+    ├── test_step3_adapters.py    # DOCX, TXT, and Markdown parser adapter tests
+    └── test_step4_csv.py         # Table-aware CSV parser unit and integration tests
 ```
 
 ---

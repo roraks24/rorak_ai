@@ -98,14 +98,14 @@ class DocumentService:
     # LIST DOCUMENTS
     # ============================================================
 
-    def get_workspace_documents(
+    def get_user_documents(
         self,
-        workspace_id: UUID,
+        user_id: UUID,
+        conversation_id: UUID | None = None,
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[Document], int]:
-        """List documents in a workspace with pagination."""
-
+        """List documents belonging to a user (optionally filtered by conversation)."""
         if page < 1:
             raise ValidationError(
                 "Page number must be >= 1."
@@ -118,17 +118,48 @@ class DocumentService:
 
         skip = (page - 1) * page_size
 
-        documents = self.repository.get_by_workspace_paginated(
-            workspace_id=workspace_id,
+        documents = self.repository.get_by_user_paginated(
+            user_id=user_id,
+            conversation_id=conversation_id,
             skip=skip,
             limit=page_size,
         )
 
-        total = self.repository.count_by_workspace(
-            workspace_id
+        total = self.repository.count_by_user(
+            user_id=user_id,
+            conversation_id=conversation_id,
         )
 
         return documents, total
+
+    def get_workspace_documents(
+        self,
+        workspace_id: UUID | None = None,
+        conversation_id: UUID | None = None,
+        page: int = 1,
+        page_size: int = 20,
+        user_id: UUID | None = None,
+    ) -> tuple[list[Document], int]:
+        """Backward-compatible documents retrieval."""
+        target_user = user_id or workspace_id
+        if target_user:
+            return self.get_user_documents(
+                user_id=target_user,
+                conversation_id=conversation_id,
+                page=page,
+                page_size=page_size,
+            )
+
+        skip = (page - 1) * page_size
+        docs = self.repository.get_by_workspace_paginated(
+            skip=skip,
+            limit=page_size,
+            conversation_id=conversation_id,
+        )
+        total = self.repository.count_by_workspace(
+            conversation_id=conversation_id,
+        )
+        return docs, total
 
     # ============================================================
     # RENAME DOCUMENT
@@ -191,9 +222,9 @@ class DocumentService:
 
     def create_document(
         self,
-        workspace_id: UUID,
         filename: str,
         original_filename: str,
+        user_id: UUID | None = None,
         file_type: str = "pdf",
         file_size: int = 0,
         page_count: int = 0,
@@ -203,6 +234,8 @@ class DocumentService:
         storage_key: str | None = None,
         checksum_sha256: str | None = None,
         failure_reason: str | None = None,
+        conversation_id: UUID | None = None,
+        workspace_id: UUID | None = None,
     ) -> Document:
         """
         Create a document database record.
@@ -238,9 +271,12 @@ class DocumentService:
                 f"{Path(safe_filename).name}"
             )
 
+        effective_user_id = user_id or workspace_id
+
         document = Document(
             id=document_id,
-            workspace_id=workspace_id,
+            user_id=effective_user_id,
+            conversation_id=conversation_id,
             filename=safe_filename,
             display_name=display_name.strip(),
             original_filename=safe_original_filename,
@@ -298,58 +334,63 @@ class DocumentService:
         # 1. Remove only this document's vectors from FAISS.
         # --------------------------------------------------------
 
-        delete_documents_by_document_id(
-            str(document.id)
-        )
-
-        # --------------------------------------------------------
-        # 2. Delete document chunks.
-        # --------------------------------------------------------
-
-        chunks = self.chunk_repository.get_by_document(
-            document_id
-        )
-
-        for chunk in chunks:
-            self.chunk_repository.delete(
-                chunk
+        try:
+            delete_documents_by_document_id(
+                str(document.id)
             )
 
-        # --------------------------------------------------------
-        # 3. Delete ingestion jobs.
-        # --------------------------------------------------------
+            # --------------------------------------------------------
+            # 2. Delete document chunks.
+            # --------------------------------------------------------
 
-        jobs = self.job_repository.get_by_document(
-            document_id
-        )
-
-        for job in jobs:
-            self.job_repository.delete(
-                job
+            chunks = self.chunk_repository.get_by_document(
+                document_id
             )
 
-        # --------------------------------------------------------
-        # 4. Delete durable source artifact.
-        # --------------------------------------------------------
+            for chunk in chunks:
+                self.chunk_repository.delete(
+                    chunk
+                )
 
-        delete_artifact(
-            document.storage_key
-        )
+            # --------------------------------------------------------
+            # 3. Delete ingestion jobs.
+            # --------------------------------------------------------
 
-        # --------------------------------------------------------
-        # 5. Delete document record.
-        # --------------------------------------------------------
+            jobs = self.job_repository.get_by_document(
+                document_id
+            )
 
-        self.repository.delete(
-            document
-        )
+            for job in jobs:
+                self.job_repository.delete(
+                    job
+                )
 
-        self.db.commit()
+            # --------------------------------------------------------
+            # 4. Delete durable source artifact.
+            # --------------------------------------------------------
 
-        logger.info(
-            "Document %s deleted successfully.",
-            document_id,
-        )
+            delete_artifact(
+                document.storage_key
+            )
+
+            # --------------------------------------------------------
+            # 5. Delete document record.
+            # --------------------------------------------------------
+
+            self.repository.delete(
+                document
+            )
+
+            self.db.commit()
+
+            logger.info(
+                "Document %s deleted successfully.",
+                document_id,
+            )
+        except Exception:
+            self.db.rollback()
+            logger.exception("Failed to delete document %s cleanly.", document_id)
+            raise
 
     # ============================================================
     # INGEST DOCUMENT
@@ -357,10 +398,12 @@ class DocumentService:
 
     def ingest_document(
         self,
-        workspace_id: UUID,
         file_path: Path | str,
         original_filename: str,
         file_size: int = 0,
+        user_id: UUID | None = None,
+        conversation_id: UUID | None = None,
+        workspace_id: UUID | None = None,
     ) -> tuple[Document, IngestionJob, int]:
         """
         Full V2.2 document ingestion workflow.
@@ -373,7 +416,7 @@ class DocumentService:
         6. Create IngestionJob with RUNNING status.
         7. Extract and chunk document.
         8. Create stable database chunk IDs.
-        9. Attach document/workspace/chunk metadata to chunks.
+        9. Attach document/user/chunk metadata to chunks.
         10. Add chunks to FAISS using stable IDs.
         11. Persist document chunks.
         12. Update document metadata.
@@ -444,9 +487,17 @@ class DocumentService:
         # 5. Create Document.
         # --------------------------------------------------------
 
+        import mimetypes
+
+        guessed_mime, _ = mimetypes.guess_type(safe_original_filename)
+        mime_type = guessed_mime or "application/octet-stream"
+
+        effective_user_id = user_id or workspace_id
+
         document = Document(
             id=document_id,
-            workspace_id=workspace_id,
+            user_id=effective_user_id,
+            conversation_id=conversation_id,
             filename=safe_name,
             display_name=safe_original_filename,
             original_filename=safe_original_filename,
@@ -454,7 +505,7 @@ class DocumentService:
                 path.suffix.lstrip(".").lower()
                 or "pdf"
             ),
-            mime_type="application/pdf",
+            mime_type=mime_type,
             file_size=file_size,
             page_count=0,
             chunk_count=0,
@@ -464,37 +515,45 @@ class DocumentService:
             failure_reason=None,
         )
 
-        self.repository.create(
-            document
-        )
+        try:
+            self.repository.create(
+                document
+            )
 
-        # --------------------------------------------------------
-        # 6. Create ingestion job.
-        # --------------------------------------------------------
+            # --------------------------------------------------------
+            # 6. Create ingestion job.
+            # --------------------------------------------------------
 
-        job = IngestionJob(
-            id=uuid4(),
-            document_id=document.id,
-            status=IngestionStatus.RUNNING.value,
-            started_at=datetime.now(
-                timezone.utc
-            ),
-        )
+            job = IngestionJob(
+                id=uuid4(),
+                document_id=document.id,
+                status=IngestionStatus.RUNNING.value,
+                started_at=datetime.now(
+                    timezone.utc
+                ),
+            )
 
-        self.job_repository.create(
-            job
-        )
+            self.job_repository.create(
+                job
+            )
 
-        # Persist the initial lifecycle state.
-        self.db.commit()
+            # Persist the initial lifecycle state.
+            self.db.commit()
 
-        self.db.refresh(
-            document
-        )
+            self.db.refresh(
+                document
+            )
 
-        self.db.refresh(
-            job
-        )
+            self.db.refresh(
+                job
+            )
+        except Exception:
+            self.db.rollback()
+            try:
+                delete_artifact(storage_key)
+            except Exception:
+                logger.warning("Failed to clean up artifact %s after commit failure", storage_key)
+            raise
 
         try:
             # ----------------------------------------------------
@@ -550,9 +609,12 @@ class DocumentService:
                     "document_id": str(
                         document.id
                     ),
-                    "workspace_id": str(
-                        document.workspace_id
+                    "user_id": str(
+                        document.user_id
                     ),
+                    "conversation_id": str(
+                        conversation_id
+                    ) if conversation_id else "",
                     "chunk_id": str(
                         chunk_id
                     ),

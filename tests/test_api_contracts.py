@@ -32,10 +32,6 @@ def test_openapi_routes_contract():
         "/documents/upload",
         "/documents/",
         "/documents/{document_id}",
-        "/workspaces/",
-        "/workspaces/{workspace_id}",
-        "/workspaces/{workspace_id}/members",
-        "/workspaces/{workspace_id}/members/{user_id}",
         "/conversations/",
         "/conversations/{conversation_id}",
         "/conversations/{conversation_id}/messages",
@@ -46,7 +42,7 @@ def test_openapi_routes_contract():
 
 
 def test_openapi_component_schemas_contract():
-    """Verify all core V2.1 domain schemas are registered in OpenAPI components."""
+    """Verify all core domain schemas are registered in OpenAPI components."""
     schema = app.openapi()
     components = schema.get("components", {}).get("schemas", {})
 
@@ -58,11 +54,6 @@ def test_openapi_component_schemas_contract():
         "DocumentUploadResponse",
         "HealthResponse",
         "ReadyResponse",
-        "CreateWorkspaceRequest",
-        "WorkspaceResponse",
-        "WorkspaceListResponse",
-        "AddMemberRequest",
-        "WorkspaceMemberResponse",
         "DocumentResponse",
         "DocumentListResponse",
         "CreateConversationRequest",
@@ -96,8 +87,8 @@ def test_openapi_ready_response_schema_properties():
 def test_openapi_error_response_contract_referenced():
     """Verify standard routes register APIErrorResponse in OpenAPI error responses."""
     schema = app.openapi()
-    workspace_get = schema["paths"]["/workspaces/{workspace_id}"]["get"]
-    responses = workspace_get.get("responses", {})
+    doc_get = schema["paths"]["/documents/{document_id}"]["get"]
+    responses = doc_get.get("responses", {})
     assert "404" in responses
     ref = responses["404"]["content"]["application/json"]["schema"]["$ref"]
     assert "APIErrorResponse" in ref

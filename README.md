@@ -51,8 +51,11 @@ Modern LLMs struggle with hallucinations and prompt injection vulnerabilities wh
 
 1. **Strict Document Grounding**: Fallback guarantees that the model refuses ungrounded speculation if answers are not verifiable in context.
 2. **Two-Stage Retrieval Pipeline**: Combines dense vector similarity search (FAISS) with high-precision neural reranking (`cross-encoder/ms-marco-MiniLM-L-6-v2`).
-3. **Hardened XML Sandboxing**: Context is passed as strictly untrusted data, neutralizing prompt override attacks embedded in malicious PDFs.
-4. **Resilient Production API**: Built on FastAPI with sliding-window rate limiting, health/readiness observability probes, and automated LLM retry mechanisms.
+3. **Hardened XML Sandboxing**: Context is passed as strictly untrusted data, neutralizing prompt override attacks embedded in malicious files.
+4. **Format-Agnostic Ingestion Engine**: Extensible parser registry supporting PDF, DOCX, TXT, Markdown, and table-aware CSV with rich row-level context.
+5. **Stateful Multi-Turn Conversations**: Thread persistence in PostgreSQL with bounded sliding-window context projections and dual-layer durable long-term memory.
+6. **Authentication & Multi-User Isolation**: Salted bcrypt password hashing, JWT bearer tokens, and strict ownership authorization across conversations, documents, memories, and workspaces.
+7. **Resilient Production API**: Built on FastAPI with sliding-window rate limiting, health/readiness observability probes, and automated LLM retry mechanisms.
 
 ---
 

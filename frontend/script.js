@@ -107,6 +107,14 @@
     var memorySection = document.getElementById("memorySection");
     var inputArea = document.getElementById("inputArea");
 
+    // "Files in chat" DOM
+    var chatCornerBar = document.getElementById("chatCornerBar");
+    var btnFilesInChat = document.getElementById("btnFilesInChat");
+    var chatFilesBadge = document.getElementById("chatFilesBadge");
+    var chatFilesDrawer = document.getElementById("chatFilesDrawer");
+    var drawerFilesCount = document.getElementById("drawerFilesCount");
+    var chatFilesCloseBtn = document.getElementById("chatFilesCloseBtn");
+
     // Conversations DOM (Step 10)
     var btnNewChat = document.getElementById("btnNewChat");
     var convListContainer = document.getElementById("convListContainer");
@@ -130,7 +138,6 @@
     var memoriesRefreshBtn = document.getElementById("memoriesRefreshBtn");
     var memoriesAddBtn = document.getElementById("memoriesAddBtn");
     var metricTotalMemories = document.getElementById("metricTotalMemories");
-    var metricWorkspaceMemories = document.getElementById("metricWorkspaceMemories");
     var metricPersonalMemories = document.getElementById("metricPersonalMemories");
     var memoriesList = document.getElementById("memoriesList");
     var memoriesPagination = document.getElementById("memoriesPagination");
@@ -168,8 +175,6 @@
 
     // Metrics
     var metricTotalDocs = document.getElementById("metricTotalDocs");
-    var metricReadyDocs = document.getElementById("metricReadyDocs");
-    var metricTotalChunks = document.getElementById("metricTotalChunks");
     var metricTotalPages = document.getElementById("metricTotalPages");
 
     // Modals
@@ -208,6 +213,7 @@
     var switchToRegisterLink = document.getElementById("switchToRegisterLink");
 
     var registerForm = document.getElementById("registerForm");
+    var registerName = document.getElementById("registerName");
     var registerEmail = document.getElementById("registerEmail");
     var registerPassword = document.getElementById("registerPassword");
     var registerConfirmPassword = document.getElementById("registerConfirmPassword");
@@ -260,15 +266,15 @@
         var initialConvId = urlParams.get("conversation_id");
 
         ensureUser()
-            .then(ensureWorkspace)
             .then(function () {
-                loadDocuments(1);
                 loadMemoriesCount();
                 return loadConversations();
             })
             .then(function () {
                 if (initialConvId) {
                     selectConversation(initialConvId, true);
+                } else {
+                    loadDocuments(1, null);
                 }
             })
             .catch(function (e) {
@@ -288,7 +294,23 @@
     // ────────────────────────────────────────
 
     function getAccessToken() {
-        return localStorage.getItem(RORAK_TOKEN_KEY);
+        var token = localStorage.getItem(RORAK_TOKEN_KEY);
+        if (!token) return null;
+        try {
+            var parts = token.split(".");
+            if (parts.length === 3) {
+                var payload = JSON.parse(atob(parts[1]));
+                if (payload.exp && Date.now() >= payload.exp * 1000) {
+                    clearAuthSession();
+                    return null;
+                }
+            }
+        } catch (e) {
+            // Malformed token
+            clearAuthSession();
+            return null;
+        }
+        return token;
     }
 
     function setAuthSession(token, user) {
@@ -301,6 +323,7 @@
             localStorage.setItem(RORAK_USER_KEY, JSON.stringify(user));
             localStorage.setItem("rorak_user_id", user.id);
         }
+        hideNotification();
         updateUserProfileUI();
     }
 
@@ -317,6 +340,7 @@
         docLibrary.documents = [];
         conversationLibrary.conversations = [];
         memoryLibrary.memories = [];
+        hideNotification();
         updateUserProfileUI();
     }
 
@@ -325,11 +349,12 @@
             if (userProfileWidget) userProfileWidget.style.display = "flex";
             if (sidebarSignInBtn) sidebarSignInBtn.style.display = "none";
             if (sidebarUserEmail) {
-                sidebarUserEmail.textContent = currentUser.email;
-                sidebarUserEmail.title = currentUser.email;
+                sidebarUserEmail.textContent = currentUser.name || currentUser.email;
+                sidebarUserEmail.title = currentUser.name ? (currentUser.name + " (" + currentUser.email + ")") : currentUser.email;
             }
             if (sidebarUserAvatar) {
-                sidebarUserAvatar.textContent = (currentUser.email[0] || "U").toUpperCase();
+                var initial = (currentUser.name || currentUser.email || "U").trim()[0];
+                sidebarUserAvatar.textContent = (initial || "U").toUpperCase();
             }
         } else {
             if (userProfileWidget) userProfileWidget.style.display = "none";
@@ -379,11 +404,12 @@
 
     function showAuthModal(tab, subtitleText) {
         if (!authModal) return;
+        hideNotification();
         switchAuthTab(tab || "login");
         if (subtitleText && authSubtitle) {
             authSubtitle.textContent = subtitleText;
         } else if (authSubtitle) {
-            authSubtitle.textContent = "Sign in to access your workspaces, documents, and conversations.";
+            authSubtitle.textContent = "Sign in to access your chats, documents, and memories.";
         }
         if (loginError) {
             loginError.style.display = "none";
@@ -395,7 +421,9 @@
         }
         authModal.style.display = "flex";
         setTimeout(function () {
-            if (tab === "register" && registerEmail) {
+            if (tab === "register" && registerName) {
+                registerName.focus();
+            } else if (tab === "register" && registerEmail) {
                 registerEmail.focus();
             } else if (loginEmail) {
                 loginEmail.focus();
@@ -405,6 +433,7 @@
 
     function hideAuthModal() {
         if (!authModal) return;
+        hideNotification();
         authModal.style.display = "none";
         if (loginError) loginError.style.display = "none";
         if (registerError) registerError.style.display = "none";
@@ -444,6 +473,48 @@
         elem.style.display = "block";
     }
 
+    function extractErrorMessage(data, defaultMsg) {
+        if (!data) return defaultMsg;
+        if (data.detail) {
+            if (typeof data.detail === "object" && data.detail.error && data.detail.error.message) {
+                return data.detail.error.message;
+            }
+            if (typeof data.detail === "string") {
+                return data.detail;
+            }
+            if (Array.isArray(data.detail) && data.detail.length > 0) {
+                var first = data.detail[0];
+                return (first && first.msg) ? first.msg : defaultMsg;
+            }
+        }
+        if (data.error && data.error.message) {
+            return data.error.message;
+        }
+        return defaultMsg;
+    }
+
+    function fetchWithTimeout(url, options, timeoutMs) {
+        timeoutMs = timeoutMs || 15000;
+        var controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+        var opts = Object.assign({}, options);
+        if (controller) {
+            opts.signal = controller.signal;
+        }
+        var timer = null;
+        var timeoutPromise = new Promise(function (_, reject) {
+            timer = setTimeout(function () {
+                if (controller) controller.abort();
+                reject(new Error("Request timed out. Please check that the server is running."));
+            }, timeoutMs);
+        });
+        return Promise.race([
+            fetch(url, opts),
+            timeoutPromise
+        ]).finally(function () {
+            if (timer) clearTimeout(timer);
+        });
+    }
+
     function setSubmitLoading(btn, isLoadingState, defaultText) {
         if (!btn) return;
         btn.disabled = isLoadingState;
@@ -451,8 +522,12 @@
         span.textContent = defaultText;
     }
 
+    var isAuthSubmitting = false;
+
     function handleLoginSubmit(e) {
-        if (e) e.preventDefault();
+        if (e && typeof e.preventDefault === "function") e.preventDefault();
+        if (isAuthSubmitting) return;
+
         var email = (loginEmail ? loginEmail.value : "").trim().toLowerCase();
         var password = (loginPassword ? loginPassword.value : "");
 
@@ -461,29 +536,29 @@
             return;
         }
 
+        isAuthSubmitting = true;
         setSubmitLoading(loginSubmitBtn, true, "Signing in...");
         if (loginError) loginError.style.display = "none";
 
-        fetch(API_BASE + "/auth/login", {
+        fetchWithTimeout(API_BASE + "/auth/login", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ email: email, password: password })
-        })
+        }, 15000)
             .then(function (res) {
                 return res.json().then(function (data) {
                     return { ok: res.ok, status: res.status, data: data };
+                }).catch(function () {
+                    return { ok: res.ok, status: res.status, data: null };
                 });
             })
             .then(function (result) {
+                isAuthSubmitting = false;
                 setSubmitLoading(loginSubmitBtn, false, "Sign In");
                 if (!result.ok) {
                     var msg = "Invalid email or password.";
-                    if (result.data && result.data.detail) {
-                        if (typeof result.data.detail === "object" && result.data.detail.error) {
-                            msg = result.data.detail.error.message || msg;
-                        } else if (typeof result.data.detail === "string") {
-                            msg = result.data.detail;
-                        }
+                    if (result.data) {
+                        msg = extractErrorMessage(result.data, msg);
                     }
                     showAuthError(loginError, msg);
                     return;
@@ -494,21 +569,30 @@
                 setAuthSession(token, user);
                 hideAuthModal();
                 if (loginPassword) loginPassword.value = "";
-                showNotification("Welcome back, " + user.email + "!");
 
-                postAuthInit();
+                // Decouple data loading from auth catch handler
+                setTimeout(postAuthInit, 50);
             })
-            .catch(function () {
+            .catch(function (err) {
+                isAuthSubmitting = false;
                 setSubmitLoading(loginSubmitBtn, false, "Sign In");
-                showAuthError(loginError, "Network error: Unable to connect to server.");
+                var errMsg = (err && err.message) ? err.message : "Network error: Unable to connect to server.";
+                showAuthError(loginError, errMsg);
             });
     }
 
     function handleRegisterSubmit(e) {
-        if (e) e.preventDefault();
+        if (e && typeof e.preventDefault === "function") e.preventDefault();
+        if (isAuthSubmitting) return;
+        var name = (registerName ? registerName.value : "").trim();
         var email = (registerEmail ? registerEmail.value : "").trim().toLowerCase();
         var password = (registerPassword ? registerPassword.value : "");
         var confirmPassword = (registerConfirmPassword ? registerConfirmPassword.value : "");
+
+        if (!name) {
+            showAuthError(registerError, "Please enter your name.");
+            return;
+        }
 
         var emailRegex = /^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$/;
         if (!email || !emailRegex.test(email)) {
@@ -526,59 +610,74 @@
             return;
         }
 
+        isAuthSubmitting = true;
         setSubmitLoading(registerSubmitBtn, true, "Creating account...");
         if (registerError) registerError.style.display = "none";
 
-        fetch(API_BASE + "/auth/register", {
+        fetchWithTimeout(API_BASE + "/auth/register", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ email: email, password: password })
-        })
+            body: JSON.stringify({ email: email, password: password, name: name })
+        }, 15000)
             .then(function (res) {
                 return res.json().then(function (data) {
                     return { ok: res.ok, status: res.status, data: data };
+                }).catch(function () {
+                    return { ok: res.ok, status: res.status, data: null };
                 });
             })
             .then(function (regResult) {
                 if (!regResult.ok) {
+                    isAuthSubmitting = false;
                     setSubmitLoading(registerSubmitBtn, false, "Create Account");
                     var msg = "Registration failed.";
                     if (regResult.status === 409) {
                         msg = "An account with this email already exists. Please sign in.";
-                    } else if (regResult.data && regResult.data.detail) {
-                        if (typeof regResult.data.detail === "object" && regResult.data.detail.error) {
-                            msg = regResult.data.detail.error.message || msg;
-                        } else if (typeof regResult.data.detail === "string") {
-                            msg = regResult.data.detail;
-                        }
+                    } else if (regResult.data) {
+                        msg = extractErrorMessage(regResult.data, msg);
                     }
                     showAuthError(registerError, msg);
                     return;
                 }
 
                 // Automatically log in after registration
-                return fetch(API_BASE + "/auth/login", {
+                return fetchWithTimeout(API_BASE + "/auth/login", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ email: email, password: password })
-                })
-                    .then(function (res) { return res.json(); })
-                    .then(function (loginData) {
+                }, 15000)
+                    .then(function (res) {
+                        return res.json().then(function (data) {
+                            return { ok: res.ok, data: data };
+                        }).catch(function () {
+                            return { ok: res.ok, data: null };
+                        });
+                    })
+                    .then(function (loginResult) {
+                        isAuthSubmitting = false;
                         setSubmitLoading(registerSubmitBtn, false, "Create Account");
-                        var token = loginData.access_token;
-                        var user = loginData.user;
+                        if (!loginResult.ok || !loginResult.data || !loginResult.data.access_token) {
+                            showAuthModal("login", "Account created successfully! Please sign in.");
+                            return;
+                        }
+                        var token = loginResult.data.access_token;
+                        var user = loginResult.data.user;
                         setAuthSession(token, user);
                         hideAuthModal();
+                        if (registerName) registerName.value = "";
+                        if (registerEmail) registerEmail.value = "";
                         if (registerPassword) registerPassword.value = "";
                         if (registerConfirmPassword) registerConfirmPassword.value = "";
-                        showNotification("Account created! Welcome, " + user.email + "!");
 
-                        postAuthInit();
+                        // Decouple data loading from auth catch handler
+                        setTimeout(postAuthInit, 50);
                     });
             })
-            .catch(function () {
+            .catch(function (err) {
+                isAuthSubmitting = false;
                 setSubmitLoading(registerSubmitBtn, false, "Create Account");
-                showAuthError(registerError, "Network error: Unable to connect to server.");
+                var errMsg = (err && err.message) ? err.message : "Network error: Unable to connect to server.";
+                showAuthError(registerError, errMsg);
             });
     }
 
@@ -588,24 +687,20 @@
         renderConversationList();
         renderDocumentList();
         renderMemoryList();
-        showNotification("Signed out successfully.");
-        showAuthModal("login", "Sign in to access your workspaces, documents, and conversations.");
+        hideNotification();
+        showAuthModal("login", "Sign in to access your chats, documents, and memories.");
     }
 
     function postAuthInit() {
-        ensureWorkspace()
-            .then(function () {
-                loadDocuments(1);
-                loadMemoriesCount();
-                return loadConversations();
-            })
-            .catch(function (e) {
-                console.warn("Post-auth data load deferred:", e);
-            });
+        loadDocuments(1, activeConversationId);
+        loadMemoriesCount();
+        loadConversations().catch(function (e) {
+            console.warn("Post-auth data load deferred:", e);
+        });
     }
 
     // ────────────────────────────────────────
-    //  User & Workspace Resolution
+    //  User Resolution
     // ────────────────────────────────────────
 
     function ensureUser() {
@@ -634,49 +729,7 @@
     }
 
     function ensureWorkspace() {
-        if (currentWorkspaceId) {
-            return Promise.resolve(currentWorkspaceId);
-        }
-        var savedId = localStorage.getItem("rorak_workspace_id");
-
-        return apiFetch(API_BASE + "/workspaces/?page=1&page_size=20")
-            .then(function (res) {
-                if (!res.ok) throw new Error("Could not list workspaces (" + res.status + ")");
-                return res.json();
-            })
-            .then(function (data) {
-                var list = (data && data.workspaces) || [];
-                if (savedId && list.some(function (w) { return w.id === savedId; })) {
-                    currentWorkspaceId = savedId;
-                    return currentWorkspaceId;
-                }
-                if (list.length > 0) {
-                    currentWorkspaceId = list[0].id;
-                    localStorage.setItem("rorak_workspace_id", currentWorkspaceId);
-                    return currentWorkspaceId;
-                }
-                // Create personal workspace for this user
-                var createPayload = { name: "Personal Workspace" };
-                return apiFetch(API_BASE + "/workspaces/", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(createPayload)
-                })
-                    .then(function (r) { return r.json(); })
-                    .then(function (ws) {
-                        currentWorkspaceId = ws.id;
-                        localStorage.setItem("rorak_workspace_id", currentWorkspaceId);
-                        return currentWorkspaceId;
-                    });
-            })
-            .catch(function (err) {
-                console.warn("Workspace resolution fallback:", err);
-                if (savedId) {
-                    currentWorkspaceId = savedId;
-                    return currentWorkspaceId;
-                }
-                throw err;
-            });
+        return Promise.resolve(null);
     }
 
 
@@ -814,7 +867,19 @@
         if (memoryAddCancelBtn) memoryAddCancelBtn.addEventListener("click", closeMemoryAddModal);
         if (memoryAddSubmitBtn) memoryAddSubmitBtn.addEventListener("click", submitAddMemory);
 
-        // Document Library header actions
+        // "Files in chat" Drawer toggle & close
+        if (btnFilesInChat) {
+            btnFilesInChat.addEventListener("click", function () {
+                toggleChatFilesDrawer();
+            });
+        }
+        if (chatFilesCloseBtn) {
+            chatFilesCloseBtn.addEventListener("click", function () {
+                toggleChatFilesDrawer(false);
+            });
+        }
+
+        // Document Library / Files actions
         if (docsUploadBtn) {
             docsUploadBtn.addEventListener("click", function () {
                 if (!getAccessToken()) {
@@ -826,7 +891,7 @@
         }
         if (docsRefreshBtn) {
             docsRefreshBtn.addEventListener("click", function () {
-                loadDocuments(docLibrary.page);
+                loadDocuments(docLibrary.page, activeConversationId);
             });
         }
 
@@ -998,6 +1063,7 @@
             if (docsSection) docsSection.style.display = "none";
             if (memorySection) memorySection.style.display = "none";
             if (inputArea) inputArea.style.display = "";
+            if (chatCornerBar) chatCornerBar.style.display = "flex";
 
             if (messages.length === 0) {
                 if (mainArea) mainArea.classList.add("is-empty");
@@ -1015,22 +1081,16 @@
                 }
             }
         } else if (view === "docs") {
-            if (navDocsBtn) navDocsBtn.classList.add("active");
-            if (navChatBtn) navChatBtn.classList.remove("active");
-            if (navMemoryBtn) navMemoryBtn.classList.remove("active");
-
-            if (mainArea) mainArea.classList.remove("is-empty");
-            if (emptyState) emptyState.style.display = "none";
-            if (chatMessages) chatMessages.style.display = "none";
-            if (inputArea) inputArea.style.display = "none";
-
-            if (memorySection) memorySection.style.display = "none";
-            if (docsSection) docsSection.style.display = "flex";
-            loadDocuments(docLibrary.page);
+            // "docs" view is now embedded directly inside the chat as "Files in chat"
+            switchView("chat");
+            toggleChatFilesDrawer(true);
         } else if (view === "memory") {
             if (navMemoryBtn) navMemoryBtn.classList.add("active");
             if (navChatBtn) navChatBtn.classList.remove("active");
             if (navDocsBtn) navDocsBtn.classList.remove("active");
+
+            toggleChatFilesDrawer(false);
+            if (chatCornerBar) chatCornerBar.style.display = "none";
 
             if (mainArea) mainArea.classList.remove("is-empty");
             if (emptyState) emptyState.style.display = "none";
@@ -1045,24 +1105,77 @@
 
 
     // ────────────────────────────────────────
-    //  Document Library: Fetch & Render (V2.2)
+    //  "Files in chat" Drawer & Isolation (V2.7)
     // ────────────────────────────────────────
 
-    function loadDocuments(page) {
+    function toggleChatFilesDrawer(force) {
+        if (!chatFilesDrawer) return;
+        var isCurrentlyOpen = chatFilesDrawer.classList.contains("open") && chatFilesDrawer.style.display !== "none";
+        var shouldOpen = (force !== undefined) ? !!force : !isCurrentlyOpen;
+        if (shouldOpen) {
+            chatFilesDrawer.style.display = "flex";
+            requestAnimationFrame(function () {
+                chatFilesDrawer.classList.add("open");
+            });
+            loadDocuments(1, activeConversationId);
+        } else {
+            chatFilesDrawer.classList.remove("open");
+            setTimeout(function () {
+                if (!chatFilesDrawer.classList.contains("open")) {
+                    chatFilesDrawer.style.display = "none";
+                }
+            }, 250);
+        }
+    }
+
+    function ensureActiveConversation() {
+        if (activeConversationId) {
+            return Promise.resolve(activeConversationId);
+        }
+        return apiFetch(API_BASE + "/conversations/", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title: "New Chat" })
+        })
+        .then(function (res) {
+            if (!res.ok) throw new Error("Failed to initialize conversation for file upload");
+            return res.json();
+        })
+        .then(function (conv) {
+            activeConversationId = conv.id;
+            var url = new URL(window.location);
+            url.searchParams.set("conversation_id", conv.id);
+            window.history.pushState({ conversation_id: conv.id }, "", url);
+            loadConversations();
+            return conv.id;
+        });
+    }
+
+    function loadDocuments(page, convId) {
         docLibrary.isLoading = true;
         docLibrary.page = page || 1;
+        var targetConvId = (convId !== undefined) ? convId : activeConversationId;
 
-        if (docsList && docLibrary.documents.length === 0) {
-            docsList.innerHTML = '<div class="docs-loading-state"><p>Loading documents…</p></div>';
+        if (!targetConvId) {
+            docLibrary.documents = [];
+            docLibrary.total = 0;
+            docLibrary.totalPages = 1;
+            docLibrary.isLoading = false;
+            renderDocumentList();
+            updateMetrics();
+            return Promise.resolve();
         }
 
-        ensureWorkspace()
-            .then(function (wsId) {
-                var url = API_BASE + "/documents/?workspace_id=" + encodeURIComponent(wsId) +
-                    "&page=" + encodeURIComponent(docLibrary.page) +
-                    "&page_size=" + encodeURIComponent(docLibrary.pageSize);
-                return apiFetch(url);
-            })
+        if (docsList && docLibrary.documents.length === 0) {
+            docsList.innerHTML = '<div class="docs-loading-state"><p>Loading files…</p></div>';
+        }
+
+        var url = API_BASE + "/documents/?page=" + encodeURIComponent(docLibrary.page) +
+            "&page_size=" + encodeURIComponent(docLibrary.pageSize);
+        if (targetConvId) {
+            url += "&conversation_id=" + encodeURIComponent(targetConvId);
+        }
+        return apiFetch(url)
             .then(function (res) {
                 if (!res.ok) throw new Error("Failed to load documents (" + res.status + ")");
                 return res.json();
@@ -1084,13 +1197,13 @@
                 if (docsList) {
                     docsList.innerHTML =
                         '<div class="docs-error-state">' +
-                            '<p style="color:#f87171;">Failed to load documents.</p>' +
+                            '<p style="color:#f87171;">Failed to load files.</p>' +
                             '<button class="btn-secondary" id="btnRetryLoad">Retry</button>' +
                         '</div>';
                     var retryBtn = document.getElementById("btnRetryLoad");
                     if (retryBtn) {
                         retryBtn.addEventListener("click", function () {
-                            loadDocuments(docLibrary.page);
+                            loadDocuments(docLibrary.page, targetConvId);
                         });
                     }
                 }
@@ -1107,30 +1220,17 @@
             docsList.innerHTML =
                 '<div class="docs-empty-state">' +
                     '<div class="docs-empty-icon">' +
-                        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' +
+                        '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="width:24px;height:24px;flex-shrink:0;">' +
                             '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>' +
                             '<polyline points="14 2 14 8 20 8"></polyline>' +
                             '<line x1="12" y1="18" x2="12" y2="12"></line>' +
                             '<line x1="9" y1="15" x2="15" y2="15"></line>' +
                         '</svg>' +
                     '</div>' +
-                    '<h3 class="docs-empty-title">No documents yet</h3>' +
-                    '<p class="docs-empty-desc">Upload PDF documents to create durable workspace knowledge and ground AI answers with verifiable citations.</p>' +
-                    '<button class="btn-primary" id="btnEmptyUpload">' +
-                        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
-                            '<line x1="12" y1="5" x2="12" y2="19"></line>' +
-                            '<line x1="5" y1="12" x2="19" y2="12"></line>' +
-                        '</svg>' +
-                        'Upload First Document' +
-                    '</button>' +
+                    '<h3 class="docs-empty-title">No files in this chat</h3>' +
+                    '<p class="docs-empty-desc">Upload files through the chat input to ground AI responses in this conversation.</p>' +
                 '</div>';
 
-            var emptyUploadBtn = document.getElementById("btnEmptyUpload");
-            if (emptyUploadBtn) {
-                emptyUploadBtn.addEventListener("click", function () {
-                    fileInput.click();
-                });
-            }
             if (docsPagination) docsPagination.style.display = "none";
             return;
         }
@@ -1157,6 +1257,20 @@
         }
     }
 
+    function getDocumentIcon(filename) {
+        var ext = (filename || "").split(".").pop().toLowerCase();
+        if (ext === "csv") {
+            return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="8" y1="13" x2="16" y2="13"></line><line x1="8" y1="17" x2="16" y2="17"></line><line x1="12" y1="9" x2="12" y2="21"></line></svg>';
+        }
+        if (ext === "docx" || ext === "doc") {
+            return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>';
+        }
+        if (ext === "md" || ext === "txt") {
+            return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>';
+        }
+        return PDF_ICON;
+    }
+
     function createDocumentCard(doc) {
         var card = document.createElement("div");
         card.className = "doc-card";
@@ -1166,9 +1280,11 @@
         var top = document.createElement("div");
         top.className = "doc-card-top";
 
+        var fileName = doc.original_filename || doc.filename || doc.display_name || "Untitled";
+
         var icon = document.createElement("div");
         icon.className = "doc-icon-badge";
-        icon.innerHTML = PDF_ICON;
+        icon.innerHTML = getDocumentIcon(fileName);
         top.appendChild(icon);
 
         var titleArea = document.createElement("div");
@@ -1176,22 +1292,10 @@
 
         var nameEl = document.createElement("div");
         nameEl.className = "doc-display-name";
-        nameEl.textContent = doc.display_name || doc.original_filename || doc.filename;
+        nameEl.textContent = fileName;
         titleArea.appendChild(nameEl);
 
-        if (doc.original_filename && doc.original_filename !== doc.display_name) {
-            var origEl = document.createElement("div");
-            origEl.className = "doc-original-file";
-            origEl.textContent = "File: " + doc.original_filename;
-            titleArea.appendChild(origEl);
-        }
-
         top.appendChild(titleArea);
-
-        // Status badge
-        var badge = createStatusBadge(doc.status);
-        top.appendChild(badge);
-
         card.appendChild(top);
 
         // Metadata row
@@ -1210,11 +1314,6 @@
         pagesPill.textContent = (doc.page_count || 0) + " pages";
         meta.appendChild(pagesPill);
 
-        var chunksPill = document.createElement("span");
-        chunksPill.className = "meta-pill";
-        chunksPill.textContent = (doc.chunk_count || 0) + " chunks";
-        meta.appendChild(chunksPill);
-
         if (doc.created_at) {
             var timePill = document.createElement("span");
             timePill.className = "meta-pill";
@@ -1223,14 +1322,6 @@
         }
 
         card.appendChild(meta);
-
-        // Failure banner if status is FAILED
-        if (doc.status === "FAILED" && doc.failure_reason) {
-            var failBanner = document.createElement("div");
-            failBanner.className = "doc-failure-banner";
-            failBanner.textContent = "Processing failed: " + doc.failure_reason;
-            card.appendChild(failBanner);
-        }
 
         // Actions
         var actions = document.createElement("div");
@@ -1260,63 +1351,30 @@
         });
         actions.appendChild(deleteBtn);
 
-        // Retry action for FAILED documents (Requirement 7: accurately reflects backend capability)
-        if (doc.status === "FAILED") {
-            var retryBtn = document.createElement("button");
-            retryBtn.className = "btn-doc-action action-retry disabled";
-            retryBtn.title = "Automatic retry is not supported by the backend. Please delete and re-upload.";
-            retryBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg> Retry (Unavailable)';
-            retryBtn.addEventListener("click", function (e) {
-                e.preventDefault();
-                showNotification("Retry is not supported by current backend. Please delete and re-upload.");
-            });
-            actions.appendChild(retryBtn);
-        }
-
         card.appendChild(actions);
         return card;
     }
 
-    function createStatusBadge(status) {
-        var badge = document.createElement("span");
-        var normalized = (status || "").toUpperCase();
-
-        if (normalized === "INDEXED") {
-            badge.className = "doc-status-badge badge-indexed";
-            badge.textContent = "Ready";
-        } else if (normalized === "PROCESSING") {
-            badge.className = "doc-status-badge badge-processing";
-            badge.textContent = "Processing";
-        } else if (normalized === "UPLOADED") {
-            badge.className = "doc-status-badge badge-uploaded";
-            badge.textContent = "Uploaded";
-        } else if (normalized === "FAILED") {
-            badge.className = "doc-status-badge badge-failed";
-            badge.textContent = "Failed";
-        } else {
-            badge.className = "doc-status-badge";
-            badge.textContent = status || "Unknown";
-        }
-        return badge;
-    }
-
     function updateMetrics() {
         var total = docLibrary.total || docLibrary.documents.length;
-        var ready = 0;
-        var chunks = 0;
         var pages = 0;
 
         docLibrary.documents.forEach(function (d) {
-            if (d.status === "INDEXED") ready++;
-            chunks += (d.chunk_count || 0);
             pages += (d.page_count || 0);
         });
 
         if (metricTotalDocs) metricTotalDocs.textContent = total;
-        if (metricReadyDocs) metricReadyDocs.textContent = ready;
-        if (metricTotalChunks) metricTotalChunks.textContent = chunks;
         if (metricTotalPages) metricTotalPages.textContent = pages;
         if (docsCountBadge) docsCountBadge.textContent = total;
+        if (chatFilesBadge) {
+            chatFilesBadge.textContent = total;
+            if (total > 0) {
+                chatFilesBadge.classList.add("has-files");
+            } else {
+                chatFilesBadge.classList.remove("has-files");
+            }
+        }
+        if (drawerFilesCount) drawerFilesCount.textContent = total;
     }
 
 
@@ -1330,8 +1388,12 @@
 
         fileInput.value = "";
 
-        if (!file.name.toLowerCase().endsWith(".pdf")) {
-            showNotification("Only PDF documents (.pdf) are supported in V2.2.");
+        var SUPPORTED_EXTENSIONS = [".pdf", ".docx", ".txt", ".md", ".csv"];
+        var ext = "." + file.name.split(".").pop().toLowerCase();
+        if (!SUPPORTED_EXTENSIONS.includes(ext)) {
+            showNotification(
+                "Unsupported file type. Supported formats: PDF, DOCX, TXT, Markdown, CSV."
+            );
             return;
         }
 
@@ -1354,81 +1416,83 @@
         if (uploadBtn) uploadBtn.disabled = true;
         if (docsUploadBtn) docsUploadBtn.disabled = true;
 
-        ensureWorkspace()
-            .then(function (wsId) {
+        ensureActiveConversation()
+            .then(function (convId) {
                 var formData = new FormData();
                 formData.append("file", file);
 
                 var xhr = new XMLHttpRequest();
-                var uploadUrl = API_BASE + "/documents/upload?workspace_id=" + encodeURIComponent(wsId);
+                var uploadUrl = API_BASE + "/documents/upload";
+                if (convId) {
+                    uploadUrl += "?conversation_id=" + encodeURIComponent(convId);
+                }
 
                 xhr.open("POST", uploadUrl, true);
                 if (token) {
                     xhr.setRequestHeader("Authorization", "Bearer " + token);
                 }
 
-                // Real progress tracking
-                xhr.upload.onprogress = function (event) {
-                    if (event.lengthComputable) {
-                        var percent = Math.round((event.loaded / event.total) * 100);
-                        updateProgressBar(percent, "Uploading (" + percent + "%)…");
-                    }
-                };
-
-                xhr.onload = function () {
-                    hideUploadProgress();
-                    if (uploadBtn) uploadBtn.disabled = false;
-                    if (docsUploadBtn) docsUploadBtn.disabled = false;
-
-                    if (xhr.status === 401) {
-                        handleUnauthorized();
-                        return;
-                    }
-
-                    if (xhr.status >= 200 && xhr.status < 300) {
-                        try {
-                            var data = JSON.parse(xhr.responseText);
-                            var doc = data.document || data;
-                            var chunkCount = data.chunk_count || doc.chunk_count || 0;
-                            var displayName = doc.display_name || doc.original_filename || file.name;
-
-                            uploadedFileName = displayName;
-                            activeDocumentId = doc.id;
-                            renderUploadChip(displayName, chunkCount);
-
-                            showNotification("Document indexed (" + chunkCount + " chunks created). Ready for questions!");
-                            setTimeout(hideNotification, 4000);
-
-                            // Refresh library
-                            loadDocuments(1);
-                        } catch (err) {
-                            showNotification("Document uploaded, but could not parse response.");
-                            loadDocuments(1);
+                    // Real progress tracking
+                    xhr.upload.onprogress = function (event) {
+                        if (event.lengthComputable) {
+                            var percent = Math.round((event.loaded / event.total) * 100);
+                            updateProgressBar(percent, "Uploading (" + percent + "%)…");
                         }
-                    } else {
-                        var errMsg = "Upload failed (" + xhr.status + ")";
-                        try {
-                            var errData = JSON.parse(xhr.responseText);
-                            errMsg = errData.detail || (errData.error && errData.error.message) || errMsg;
-                        } catch (e) {}
-                        showNotification("Upload failed: " + errMsg);
-                    }
-                };
+                    };
 
-                xhr.onerror = function () {
-                    hideUploadProgress();
-                    if (uploadBtn) uploadBtn.disabled = false;
-                    if (docsUploadBtn) docsUploadBtn.disabled = false;
-                    showNotification("Network error occurred during document upload.");
-                };
+                    xhr.onload = function () {
+                        hideUploadProgress();
+                        if (uploadBtn) uploadBtn.disabled = false;
+                        if (docsUploadBtn) docsUploadBtn.disabled = false;
 
-                xhr.send(formData);
+                        if (xhr.status === 401) {
+                            handleUnauthorized();
+                            return;
+                        }
+
+                        if (xhr.status >= 200 && xhr.status < 300) {
+                            try {
+                                var data = JSON.parse(xhr.responseText);
+                                var doc = data.document || data;
+                                var fileName = doc.original_filename || doc.filename || doc.display_name || file.name;
+
+                                uploadedFileName = fileName;
+                                activeDocumentId = doc.id;
+                                renderUploadChip(fileName);
+
+                                showNotification("Document indexed successfully. Ready for questions!");
+                                setTimeout(hideNotification, 4000);
+
+                                // Refresh files in chat silently in the background
+                                loadDocuments(1, activeConversationId);
+                            } catch (err) {
+                                showNotification("Document uploaded, but could not parse response.");
+                                loadDocuments(1, activeConversationId);
+                            }
+                        } else {
+                            var errMsg = "Upload failed (" + xhr.status + ")";
+                            try {
+                                var errData = JSON.parse(xhr.responseText);
+                                errMsg = errData.detail || (errData.error && errData.error.message) || errMsg;
+                            } catch (e) {}
+                            showNotification("Upload failed: " + errMsg);
+                        }
+                    };
+
+                    xhr.onerror = function () {
+                        hideUploadProgress();
+                        if (uploadBtn) uploadBtn.disabled = false;
+                        if (docsUploadBtn) docsUploadBtn.disabled = false;
+                        showNotification("Network error occurred during document upload.");
+                    };
+
+                    xhr.send(formData);
             })
             .catch(function (err) {
                 hideUploadProgress();
                 if (uploadBtn) uploadBtn.disabled = false;
                 if (docsUploadBtn) docsUploadBtn.disabled = false;
-                showNotification("Could not resolve workspace for upload: " + (err.message || err));
+                showNotification("Could not start upload: " + (err.message || err));
             });
     }
 
@@ -1449,12 +1513,11 @@
         if (docsUploadProgress) docsUploadProgress.style.display = "none";
     }
 
-    function renderUploadChip(name, chunkCount) {
+    function renderUploadChip(name) {
         if (!uploadIndicator) return;
-        var title = name + (chunkCount ? " (" + chunkCount + " chunks)" : "");
         uploadIndicator.innerHTML =
             '<div class="upload-chip">' +
-                '<span>📄 ' + escapeHtml(title) + '</span>' +
+                '<span>📄 ' + escapeHtml(name) + '</span>' +
                 '<button class="upload-chip-remove" title="Unlink from chat">&times;</button>' +
             '</div>';
         uploadIndicator.classList.add("active");
@@ -1498,22 +1561,16 @@
 
     function renderDetailsContent(doc) {
         // Excludes storage_key, raw filesystem paths, secrets, or internal tracebacks
+        var fileName = doc.original_filename || doc.filename || doc.display_name || "—";
         var html = '<table class="meta-table">' +
-            '<tr><td>Display Name</td><td><strong>' + escapeHtml(doc.display_name || doc.original_filename || "—") + '</strong></td></tr>' +
-            '<tr><td>Original File</td><td>' + escapeHtml(doc.original_filename || doc.filename || "—") + '</td></tr>' +
-            '<tr><td>Status</td><td>' + createStatusBadge(doc.status).outerHTML + '</td></tr>' +
+            '<tr><td>File Name</td><td><strong>' + escapeHtml(fileName) + '</strong></td></tr>' +
             '<tr><td>File Size</td><td>' + formatBytes(doc.file_size) + ' (' + (doc.file_size || 0).toLocaleString() + ' bytes)</td></tr>' +
             '<tr><td>Pages</td><td>' + (doc.page_count !== undefined ? doc.page_count : "—") + '</td></tr>' +
-            '<tr><td>Chunks Indexed</td><td>' + (doc.chunk_count !== undefined ? doc.chunk_count : "—") + '</td></tr>' +
             '<tr><td>MIME Type</td><td><code>' + escapeHtml(doc.mime_type || "application/pdf") + '</code></td></tr>' +
             '<tr><td>Created</td><td>' + formatDate(doc.created_at, true) + '</td></tr>' +
-            '<tr><td>Updated</td><td>' + formatDate(doc.updated_at, true) + '</td></tr>';
+            '<tr><td>Updated</td><td>' + formatDate(doc.updated_at, true) + '</td></tr>' +
+            '</table>';
 
-        if (doc.status === "FAILED" && doc.failure_reason) {
-            html += '<tr><td>Failure Reason</td><td><span style="color:#f87171;">' + escapeHtml(doc.failure_reason) + '</span></td></tr>';
-        }
-
-        html += '</table>';
         docDetailsContent.innerHTML = html;
     }
 
@@ -1530,7 +1587,7 @@
         docLibrary.pendingActionDoc = doc;
         if (!docRenameModal || !renameInput) return;
 
-        renameInput.value = doc.display_name || doc.original_filename || "";
+        renameInput.value = doc.original_filename || doc.filename || doc.display_name || "";
         if (renameCharCount) renameCharCount.textContent = renameInput.value.length + " / 255";
         if (renameError) renameError.style.display = "none";
 
@@ -1553,12 +1610,12 @@
         var newName = renameInput.value.trim();
 
         if (!newName) {
-            showRenameError("Display name cannot be empty.");
+            showRenameError("File name cannot be empty.");
             return;
         }
 
         if (newName.length > 255) {
-            showRenameError("Display name must be 255 characters or fewer.");
+            showRenameError("File name must be 255 characters or fewer.");
             return;
         }
 
@@ -1583,13 +1640,14 @@
             })
             .then(function (updated) {
                 closeRenameModal();
-                showNotification("Document renamed to \"" + updated.display_name + "\"");
+                var updatedFileName = updated.original_filename || updated.filename || updated.display_name;
+                showNotification("Document renamed to \"" + updatedFileName + "\"");
                 setTimeout(hideNotification, 3000);
 
                 // Update in active chip if present
                 if (activeDocumentId === updated.id) {
-                    uploadedFileName = updated.display_name;
-                    renderUploadChip(updated.display_name, updated.chunk_count);
+                    uploadedFileName = updatedFileName;
+                    renderUploadChip(updatedFileName);
                 }
 
                 // Refresh document list
@@ -1621,7 +1679,7 @@
         docLibrary.pendingActionDoc = doc;
         if (!docDeleteModal || !deleteDocName) return;
 
-        deleteDocName.textContent = '"' + (doc.display_name || doc.original_filename || "this document") + '"';
+        deleteDocName.textContent = '"' + (doc.original_filename || doc.filename || doc.display_name || "this document") + '"';
         docDeleteModal.style.display = "flex";
     }
 
@@ -1685,11 +1743,8 @@
             convList.innerHTML = '<div class="conv-loading-state">Loading chats…</div>';
         }
 
-        return ensureWorkspace()
-            .then(function (wsId) {
-                var url = API_BASE + "/conversations/?workspace_id=" + encodeURIComponent(wsId) + "&page=1&page_size=50";
-                return apiFetch(url);
-            })
+        var url = API_BASE + "/conversations/?page=1&page_size=50";
+        return apiFetch(url)
             .then(function (res) {
                 if (!res.ok) throw new Error("Failed to load conversations (" + res.status + ")");
                 return res.json();
@@ -1785,6 +1840,7 @@
         renderConversationList();
         closeSidebar();
         loadConversationMessages(convId);
+        loadDocuments(1, convId);
     }
 
     function startNewChat(skipHistoryPush) {
@@ -1796,6 +1852,13 @@
             chatMessages.classList.remove("active");
         }
 
+        uploadedFileName = null;
+        activeDocumentId = null;
+        if (uploadIndicator) {
+            uploadIndicator.innerHTML = "";
+            uploadIndicator.classList.remove("active");
+        }
+
         if (!skipHistoryPush) {
             var url = new URL(window.location);
             url.searchParams.delete("conversation_id");
@@ -1805,11 +1868,20 @@
         renderConversationList();
         switchView("chat");
         setRandomGreeting();
+        loadDocuments(1, null);
+        toggleChatFilesDrawer(false);
         if (chatInput) chatInput.focus();
     }
 
     function loadConversationMessages(convId) {
         if (!chatMessages) return;
+
+        uploadedFileName = null;
+        activeDocumentId = null;
+        if (uploadIndicator) {
+            uploadIndicator.innerHTML = "";
+            uploadIndicator.classList.remove("active");
+        }
 
         chatMessages.innerHTML =
             '<div class="chat-loading-history">' +
@@ -1821,10 +1893,8 @@
         if (emptyState) emptyState.style.display = "none";
         if (mainArea) mainArea.classList.remove("is-empty");
 
-        ensureWorkspace().then(function (wsId) {
-            var url = API_BASE + "/conversations/" + encodeURIComponent(convId) + "/messages?workspace_id=" + encodeURIComponent(wsId) + "&page=1&page_size=100";
-            return apiFetch(url);
-        })
+        var url = API_BASE + "/conversations/" + encodeURIComponent(convId) + "/messages?page=1&page_size=100";
+        apiFetch(url)
             .then(function (res) {
                 if (res.status === 404) {
                     // Deleted conversation state: gracefully recover
@@ -1856,6 +1926,7 @@
             })
             .catch(function (err) {
                 console.error("Messages load error:", err);
+                finishChat();
                 chatMessages.innerHTML =
                     '<div class="conv-error-state">' +
                         '<p style="color:#f87171;">Failed to load messages.</p>' +
@@ -1904,13 +1975,11 @@
             convRenameSubmitBtn.textContent = "Saving…";
         }
 
-        ensureWorkspace().then(function (wsId) {
-            var url = API_BASE + "/conversations/" + encodeURIComponent(conv.id) + "?workspace_id=" + encodeURIComponent(wsId);
-            return apiFetch(url, {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ title: newTitle })
-            });
+        var url = API_BASE + "/conversations/" + encodeURIComponent(conv.id);
+        apiFetch(url, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title: newTitle })
         })
             .then(function (res) {
                 if (!res.ok) throw new Error("Failed to rename conversation (" + res.status + ")");
@@ -1965,10 +2034,8 @@
             convDeleteConfirmBtn.textContent = "Deleting…";
         }
 
-        ensureWorkspace().then(function (wsId) {
-            var url = API_BASE + "/conversations/" + encodeURIComponent(conv.id) + "?workspace_id=" + encodeURIComponent(wsId);
-            return apiFetch(url, { method: "DELETE" });
-        })
+        var url = API_BASE + "/conversations/" + encodeURIComponent(conv.id);
+        apiFetch(url, { method: "DELETE" })
             .then(function (res) {
                 if (!res.ok && res.status !== 200 && res.status !== 204) {
                     throw new Error("Failed to delete conversation (" + res.status + ")");
@@ -1999,14 +2066,8 @@
     // ────────────────────────────────────────
 
     function loadMemoriesCount() {
-        return ensureUser().then(function (userId) {
-            return ensureWorkspace().then(function (wsId) {
-                var url = API_BASE + "/memories/?user_id=" + encodeURIComponent(userId) +
-                    "&workspace_id=" + encodeURIComponent(wsId) +
-                    "&page=1&page_size=1";
-                return apiFetch(url);
-            });
-        })
+        var url = API_BASE + "/memories/?page=1&page_size=1";
+        return apiFetch(url)
             .then(function (res) {
                 if (!res.ok) return null;
                 return res.json();
@@ -2029,16 +2090,9 @@
             memoriesList.innerHTML = '<div class="docs-loading-state"><p>Loading memories…</p></div>';
         }
 
-        ensureUser().then(function (userId) {
-            return ensureWorkspace().then(function (wsId) {
-                var url = API_BASE + "/memories/?user_id=" + encodeURIComponent(userId) +
-                    "&workspace_id=" + encodeURIComponent(wsId) +
-                    "&include_global=true" +
-                    "&page=" + encodeURIComponent(memoryLibrary.page) +
-                    "&page_size=" + encodeURIComponent(memoryLibrary.pageSize);
-                return apiFetch(url);
-            });
-        })
+        var url = API_BASE + "/memories/?page=" + encodeURIComponent(memoryLibrary.page) +
+            "&page_size=" + encodeURIComponent(memoryLibrary.pageSize);
+        return apiFetch(url)
             .then(function (res) {
                 if (!res.ok) throw new Error("Failed to load memories (" + res.status + ")");
                 return res.json();
@@ -2081,10 +2135,7 @@
 
     function updateMemoryMetrics() {
         if (metricTotalMemories) metricTotalMemories.textContent = memoryLibrary.total;
-        var wsCount = memoryLibrary.memories.filter(function (m) { return m.workspace_id !== null && m.workspace_id !== undefined; }).length;
-        var personalCount = memoryLibrary.memories.filter(function (m) { return m.workspace_id === null || m.workspace_id === undefined; }).length;
-        if (metricWorkspaceMemories) metricWorkspaceMemories.textContent = wsCount;
-        if (metricPersonalMemories) metricPersonalMemories.textContent = personalCount;
+        if (metricPersonalMemories) metricPersonalMemories.textContent = memoryLibrary.total;
     }
 
     function renderMemoryList() {
@@ -2102,7 +2153,7 @@
                         '</svg>' +
                     '</div>' +
                     '<h3 class="docs-empty-title">No memories stored yet</h3>' +
-                    '<p class="docs-empty-desc">Rorak AI captures user preferences and workspace facts to assemble rich context during chat conversations.</p>' +
+                    '<p class="docs-empty-desc">Rorak AI captures user preferences and durable facts to assemble rich context during chat conversations.</p>' +
                     '<button class="btn-primary" id="btnEmptyAddMem">' +
                         '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
                             '<line x1="12" y1="5" x2="12" y2="19"></line>' +
@@ -2149,12 +2200,6 @@
 
         var badges = document.createElement("div");
         badges.className = "memory-card-badges";
-
-        var isWs = (mem.workspace_id !== null && mem.workspace_id !== undefined);
-        var scopeBadge = document.createElement("span");
-        scopeBadge.className = isWs ? "badge-scope-workspace" : "badge-scope-user";
-        scopeBadge.textContent = isWs ? "Workspace Scope" : "Personal Scope";
-        badges.appendChild(scopeBadge);
 
         var typeBadge = document.createElement("span");
         typeBadge.className = "badge-type";
@@ -2218,14 +2263,8 @@
             memoryDeleteConfirmBtn.textContent = "Deleting…";
         }
 
-        ensureUser().then(function (userId) {
-            return ensureWorkspace().then(function (wsId) {
-                var url = API_BASE + "/memories/" + encodeURIComponent(mem.id) +
-                    "?user_id=" + encodeURIComponent(userId) +
-                    "&workspace_id=" + encodeURIComponent(wsId);
-                return apiFetch(url, { method: "DELETE" });
-            });
-        })
+        var url = API_BASE + "/memories/" + encodeURIComponent(mem.id);
+        apiFetch(url, { method: "DELETE" })
             .then(function (res) {
                 if (!res.ok && res.status !== 200 && res.status !== 204) {
                     throw new Error("Failed to delete memory (" + res.status + ")");
@@ -2270,27 +2309,20 @@
         }
 
         var type = memoryAddType ? memoryAddType.value : "system_directive";
-        var scope = memoryAddScope ? memoryAddScope.value : "workspace";
 
         if (memoryAddSubmitBtn) {
             memoryAddSubmitBtn.disabled = true;
             memoryAddSubmitBtn.textContent = "Saving…";
         }
 
-        ensureUser().then(function (userId) {
-            return ensureWorkspace().then(function (wsId) {
-                var payload = {
-                    user_id: userId,
-                    content: content,
-                    memory_type: type,
-                    workspace_id: (scope === "workspace" ? wsId : null)
-                };
-                return apiFetch(API_BASE + "/memories/", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(payload)
-                });
-            });
+        var payload = {
+            content: content,
+            memory_type: type
+        };
+        apiFetch(API_BASE + "/memories/", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
         })
             .then(function (res) {
                 if (!res.ok) throw new Error("Failed to save memory (" + res.status + ")");
@@ -2343,34 +2375,36 @@
         addMessage("user", question);
         chatInput.value = "";
 
+        uploadedFileName = null;
+        activeDocumentId = null;
+        if (uploadIndicator) {
+            uploadIndicator.innerHTML = "";
+            uploadIndicator.classList.remove("active");
+        }
+
         isLoading = true;
         sendBtn.disabled = true;
         var loadingId = showLoadingDots();
+        var convIdAtStart = activeConversationId;
 
-        executeChatWithRetry(question, 0, loadingId);
+        executeChatWithRetry(question, 0, loadingId, convIdAtStart);
     }
 
-    function executeChatWithRetry(question, retryCount, loadingId) {
+    function executeChatWithRetry(question, retryCount, loadingId, convIdAtStart) {
         var MAX_RETRIES = 2;
         var RETRY_DELAYS = [1000, 2000];
 
-        ensureUser().then(function (userId) {
-            return ensureWorkspace().then(function (wsId) {
-                var payload = {
-                    question: question,
-                    workspace_id: wsId,
-                    user_id: userId
-                };
-                if (activeConversationId) {
-                    payload.conversation_id = activeConversationId;
-                }
+        var payload = {
+            question: question
+        };
+        if (convIdAtStart) {
+            payload.conversation_id = convIdAtStart;
+        }
 
-                return apiFetch(API_BASE + "/chat/", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(payload)
-                });
-            });
+        apiFetch(API_BASE + "/chat/", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
         })
             .then(function (res) {
                 return res.json().then(function (data) {
@@ -2385,15 +2419,28 @@
             .then(function (data) {
                 removeLoadingDots(loadingId);
                 hideNotification();
+
+                // If user switched conversations while request was in-flight, do not append to new conversation
+                if (convIdAtStart !== null && activeConversationId !== convIdAtStart) {
+                    loadConversations();
+                    finishChat();
+                    return;
+                }
+
                 if (!activeConversationId && data.conversation_id) {
                     activeConversationId = data.conversation_id;
                     var url = new URL(window.location);
                     url.searchParams.set("conversation_id", activeConversationId);
                     window.history.replaceState({ conversation_id: activeConversationId }, "", url);
                     loadConversations();
+                    loadDocuments(1, activeConversationId);
                 }
                 addMessage("assistant", data.answer);
                 finishChat();
+                loadMemoriesCount();
+                if (activeView === "memory") {
+                    loadMemories(memoryLibrary.page);
+                }
             })
             .catch(function (error) {
                 var isTransient = !error.status || error.status >= 500;
@@ -2404,7 +2451,7 @@
                     showNotification("Temporary backend issue. Retrying in " + (delay / 1000) + "s… (Attempt " + nextAttempt + "/" + MAX_RETRIES + ")");
 
                     setTimeout(function () {
-                        executeChatWithRetry(question, retryCount + 1, loadingId);
+                        executeChatWithRetry(question, retryCount + 1, loadingId, convIdAtStart);
                     }, delay);
                 } else {
                     removeLoadingDots(loadingId);

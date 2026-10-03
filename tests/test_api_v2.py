@@ -1,6 +1,9 @@
+import io
 import uuid
+from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
+from langchain_core.documents import Document as LCDocument
 
 from backend.main import app
 from backend.core.database import get_db
@@ -13,8 +16,6 @@ from backend.models.db import (
     Memory,
     Message,
     User,
-    Workspace,
-    WorkspaceMember,
 )
 
 
@@ -36,13 +37,9 @@ def db_session():
 
 
 @pytest.fixture
-def setup_user_and_workspace(db_session):
-    user = User(id=uuid.uuid4(), email=f"api_test_{uuid.uuid4()}@example.com")
-    ws = Workspace(id=uuid.uuid4(), name=f"API_WS_{uuid.uuid4().hex[:8]}")
-    member = WorkspaceMember(workspace_id=ws.id, user_id=user.id, role="owner")
+def setup_user(db_session):
+    user = User(id=uuid.uuid4(), email=f"api_test_{uuid.uuid4().hex[:8]}@example.com")
     db_session.add(user)
-    db_session.add(ws)
-    db_session.add(member)
     db_session.commit()
 
     token = create_access_token(data={"sub": str(user.id), "email": user.email})
@@ -50,7 +47,7 @@ def setup_user_and_workspace(db_session):
     client.headers["Authorization"] = f"Bearer {token}"
 
     try:
-        yield ws, user
+        yield user
     finally:
         if old_auth:
             client.headers["Authorization"] = old_auth
@@ -58,115 +55,31 @@ def setup_user_and_workspace(db_session):
             client.headers.pop("Authorization", None)
 
         # Cleanup
-        db_session.query(Memory).filter((Memory.workspace_id == ws.id) | (Memory.user_id == user.id)).delete(synchronize_session=False)
-        doc_ids = [d.id for d in db_session.query(Document).filter(Document.workspace_id == ws.id).all()]
+        db_session.query(Memory).filter(Memory.user_id == user.id).delete(synchronize_session=False)
+        doc_ids = [d.id for d in db_session.query(Document).filter(Document.user_id == user.id).all()]
         if doc_ids:
             db_session.query(DocumentChunk).filter(DocumentChunk.document_id.in_(doc_ids)).delete(synchronize_session=False)
             db_session.query(IngestionJob).filter(IngestionJob.document_id.in_(doc_ids)).delete(synchronize_session=False)
-            db_session.query(Document).filter(Document.workspace_id == ws.id).delete(synchronize_session=False)
-        conv_ids = [c.id for c in db_session.query(Conversation).filter(Conversation.workspace_id == ws.id).all()]
+            db_session.query(Document).filter(Document.user_id == user.id).delete(synchronize_session=False)
+        conv_ids = [c.id for c in db_session.query(Conversation).filter(Conversation.user_id == user.id).all()]
         if conv_ids:
             db_session.query(Message).filter(Message.conversation_id.in_(conv_ids)).delete(synchronize_session=False)
-            db_session.query(Conversation).filter(Conversation.workspace_id == ws.id).delete(synchronize_session=False)
-        db_session.query(WorkspaceMember).filter(WorkspaceMember.workspace_id == ws.id).delete(synchronize_session=False)
-        db_session.query(Workspace).filter(Workspace.id == ws.id).delete(synchronize_session=False)
+            db_session.query(Conversation).filter(Conversation.user_id == user.id).delete(synchronize_session=False)
         db_session.query(User).filter(User.id == user.id).delete(synchronize_session=False)
         db_session.commit()
-
-
-# ============================================================
-# WORKSPACE API TESTS
-# ============================================================
-
-def test_workspace_api_crud(db_session):
-    user = User(id=uuid.uuid4(), email=f"ws_crud_{uuid.uuid4().hex[:8]}@example.com")
-    db_session.add(user)
-    db_session.commit()
-    token = create_access_token(data={"sub": str(user.id), "email": user.email})
-    headers = {"Authorization": f"Bearer {token}"}
-    ws_name = f"API_Test_WS_{uuid.uuid4().hex[:8]}"
-
-    # Create workspace
-    resp = client.post("/workspaces/", json={"name": ws_name}, headers=headers)
-    assert resp.status_code == 201
-    data = resp.json()
-    assert data["name"] == ws_name
-    ws_id = data["id"]
-
-    # Duplicate name fails with 409
-    resp_dup = client.post("/workspaces/", json={"name": ws_name}, headers=headers)
-    assert resp_dup.status_code == 409
-
-    # Validation failure: empty name
-    resp_empty = client.post("/workspaces/", json={"name": ""}, headers=headers)
-    assert resp_empty.status_code == 422
-
-    # Get workspace by ID
-    resp_get = client.get(f"/workspaces/{ws_id}", headers=headers)
-    assert resp_get.status_code == 200
-    assert resp_get.json()["id"] == ws_id
-
-    # List workspaces
-    resp_list = client.get("/workspaces/", headers=headers)
-    assert resp_list.status_code == 200
-    assert resp_list.json()["pagination"]["total"] >= 1
-
-    # Delete workspace
-    resp_del = client.delete(f"/workspaces/{ws_id}", headers=headers)
-    assert resp_del.status_code == 200
-
-    # 404 after deletion
-    resp_gone = client.get(f"/workspaces/{ws_id}", headers=headers)
-    assert resp_gone.status_code == 404
-
-
-def test_workspace_members_api(setup_user_and_workspace, db_session):
-    ws, owner = setup_user_and_workspace
-    new_user = User(id=uuid.uuid4(), email=f"member_user_{uuid.uuid4().hex[:8]}@example.com")
-    db_session.add(new_user)
-    db_session.commit()
-
-    # Add member
-    resp = client.post(
-        f"/workspaces/{ws.id}/members",
-        json={"user_id": str(new_user.id), "role": "admin"},
-    )
-    assert resp.status_code == 201
-    assert resp.json()["role"] == "admin"
-
-    # Duplicate member fails with 409
-    resp_dup = client.post(
-        f"/workspaces/{ws.id}/members",
-        json={"user_id": str(new_user.id), "role": "member"},
-    )
-    assert resp_dup.status_code == 409
-
-    # List members
-    resp_list = client.get(f"/workspaces/{ws.id}/members")
-    assert resp_list.status_code == 200
-    assert any(m["user_id"] == str(new_user.id) for m in resp_list.json())
-
-    # Remove member
-    resp_rm = client.delete(f"/workspaces/{ws.id}/members/{new_user.id}")
-    assert resp_rm.status_code == 200
-
-    # Removing again fails with 400
-    resp_rm_again = client.delete(f"/workspaces/{ws.id}/members/{new_user.id}")
-    assert resp_rm_again.status_code == 400
 
 
 # ============================================================
 # CONVERSATION API TESTS
 # ============================================================
 
-def test_conversation_api_flow(setup_user_and_workspace):
-    ws, user = setup_user_and_workspace
+def test_conversation_api_flow(setup_user):
+    user = setup_user
 
     # Create conversation
     resp = client.post(
         "/conversations/",
         json={
-            "workspace_id": str(ws.id),
             "user_id": str(user.id),
             "title": "API Thread",
         },
@@ -179,8 +92,8 @@ def test_conversation_api_flow(setup_user_and_workspace):
     assert resp_get.status_code == 200
     assert resp_get.json()["title"] == "API Thread"
 
-    # List conversations for workspace
-    resp_list = client.get(f"/conversations/?workspace_id={ws.id}")
+    # List conversations for user
+    resp_list = client.get(f"/conversations/?user_id={user.id}")
     assert resp_list.status_code == 200
     assert resp_list.json()["pagination"]["total"] == 1
 
@@ -210,11 +123,11 @@ def test_conversation_api_flow(setup_user_and_workspace):
 # DOCUMENT V2 API TESTS
 # ============================================================
 
-def test_document_v2_api(setup_user_and_workspace):
-    ws, _ = setup_user_and_workspace
+def test_document_v2_api(setup_user):
+    user = setup_user
 
-    # List documents for empty workspace
-    resp_list = client.get(f"/documents/?workspace_id={ws.id}")
+    # List documents for empty user
+    resp_list = client.get(f"/documents/?user_id={user.id}")
     assert resp_list.status_code == 200
     assert resp_list.json()["pagination"]["total"] == 0
 
@@ -229,34 +142,22 @@ def test_document_v2_api(setup_user_and_workspace):
     assert resp_db.json()["database_connected"] is True
 
 
-def test_api_pagination_query_validation(setup_user_and_workspace):
+def test_api_pagination_query_validation(setup_user):
     """Verify API endpoints reject out-of-bounds pagination query parameters with 422."""
-    ws, _ = setup_user_and_workspace
-
-    # Workspaces
-    assert client.get("/workspaces/?page=0").status_code == 422
-    assert client.get("/workspaces/?page_size=0").status_code == 422
-    assert client.get("/workspaces/?page_size=101").status_code == 422
+    user = setup_user
 
     # Conversations
-    assert client.get(f"/conversations/?workspace_id={ws.id}&page=0").status_code == 422
-    assert client.get(f"/conversations/?workspace_id={ws.id}&page_size=101").status_code == 422
+    assert client.get(f"/conversations/?user_id={user.id}&page=0").status_code == 422
+    assert client.get(f"/conversations/?user_id={user.id}&page_size=101").status_code == 422
 
     # Documents
-    assert client.get(f"/documents/?workspace_id={ws.id}&page=0").status_code == 422
-    assert client.get(f"/documents/?workspace_id={ws.id}&page_size=101").status_code == 422
+    assert client.get(f"/documents/?user_id={user.id}&page=0").status_code == 422
+    assert client.get(f"/documents/?user_id={user.id}&page_size=101").status_code == 422
 
 
-def test_api_invalid_parameter_validation(setup_user_and_workspace):
-    """Verify API endpoints reject malformed UUIDs and missing required parameters with 422."""
-    ws, _ = setup_user_and_workspace
-
-    # Missing required query param
-    assert client.get("/conversations/").status_code == 422
-    assert client.get("/documents/").status_code == 422
-
+def test_api_invalid_parameter_validation(setup_user):
+    """Verify API endpoints reject malformed UUIDs with 422."""
     # Malformed UUID paths
-    assert client.get("/workspaces/not-a-uuid").status_code == 422
     assert client.get("/conversations/not-a-uuid").status_code == 422
     assert client.get("/documents/not-a-uuid").status_code == 422
 
@@ -265,20 +166,16 @@ def test_api_invalid_parameter_validation(setup_user_and_workspace):
 # V2.2 DOCUMENT API CONTRACT TESTS
 # ============================================================
 
-def test_document_v2_api_full_lifecycle(setup_user_and_workspace):
+def test_document_v2_api_full_lifecycle(setup_user):
     """
     Test complete V2.2 document API lifecycle:
-    - POST /documents/upload?workspace_id=...
+    - POST /documents/upload
     - GET /documents/{document_id}
-    - GET /documents/?workspace_id=...&page=1&page_size=20
+    - GET /documents/?page=1&page_size=20
     - PATCH /documents/{document_id}
     - DELETE /documents/{document_id}
     """
-    import io
-    from unittest.mock import patch
-    from langchain_core.documents import Document as LCDocument
-
-    ws, _ = setup_user_and_workspace
+    user = setup_user
 
     # 1. POST /documents/upload
     pdf_content = b"%PDF-1.4 test api upload document lifecycle content"
@@ -290,7 +187,7 @@ def test_document_v2_api_full_lifecycle(setup_user_and_workspace):
             LCDocument(page_content="Section 2: Methodology", metadata={"page": 2}),
         ]
         resp_upload = client.post(
-            f"/documents/upload?workspace_id={ws.id}",
+            "/documents/upload",
             files=files,
         )
 
@@ -300,7 +197,7 @@ def test_document_v2_api_full_lifecycle(setup_user_and_workspace):
     doc_data = upload_data["document"]
     doc_id = doc_data["id"]
     try:
-        assert doc_data["workspace_id"] == str(ws.id)
+        assert doc_data["user_id"] == str(user.id)
         assert doc_data["display_name"] == "research_paper.pdf"
         assert doc_data["mime_type"] == "application/pdf"
         assert "chunk_count" in doc_data
@@ -314,8 +211,8 @@ def test_document_v2_api_full_lifecycle(setup_user_and_workspace):
         assert fetched_data["display_name"] == "research_paper.pdf"
         assert fetched_data["mime_type"] == "application/pdf"
 
-        # 3. GET /documents/?workspace_id=<uuid>&page=1&page_size=20
-        resp_list = client.get(f"/documents/?workspace_id={ws.id}&page=1&page_size=20")
+        # 3. GET /documents/?page=1&page_size=20
+        resp_list = client.get(f"/documents/?page=1&page_size=20")
         assert resp_list.status_code == 200
         list_data = resp_list.json()
         assert "documents" in list_data
@@ -351,13 +248,11 @@ def test_document_v2_api_full_lifecycle(setup_user_and_workspace):
         resp_get_deleted = client.get(f"/documents/{doc_id}")
         assert resp_get_deleted.status_code == 404
     finally:
-        # Cleanup document if still present
         client.delete(f"/documents/{doc_id}")
 
 
-def test_document_v2_rename_validation_api(setup_user_and_workspace):
+def test_document_v2_rename_validation_api(setup_user):
     """Verify PATCH /documents/{document_id} rejects invalid payloads."""
-    ws, _ = setup_user_and_workspace
     fake_id = uuid.uuid4()
 
     # Reject nonexistent document with 404
@@ -389,16 +284,15 @@ def test_document_v2_rename_validation_api(setup_user_and_workspace):
     assert resp_long.status_code in (400, 422)
 
 
-def test_memory_api_crud(setup_user_and_workspace):
+def test_memory_api_crud(setup_user):
     """Verify Memory REST API lifecycle: create, list, get, patch, delete."""
-    ws, user = setup_user_and_workspace
+    user = setup_user
 
     # 1. Create memory
     resp = client.post(
         "/memories/",
         json={
             "user_id": str(user.id),
-            "workspace_id": str(ws.id),
             "content": "API preference: User prefers JSON responses",
             "memory_type": "preference",
         },
@@ -426,7 +320,7 @@ def test_memory_api_crud(setup_user_and_workspace):
     assert resp_get.json()["id"] == mem_id
 
     # 4. List memories
-    resp_list = client.get(f"/memories/?user_id={user.id}&workspace_id={ws.id}")
+    resp_list = client.get(f"/memories/?user_id={user.id}")
     assert resp_list.status_code == 200
     list_data = resp_list.json()
     assert list_data["pagination"]["total"] >= 1
@@ -454,26 +348,23 @@ def test_memory_api_crud(setup_user_and_workspace):
     assert resp_gone.status_code == 404
 
 
-def test_step_9_conversation_api_contract(setup_user_and_workspace):
+def test_step_9_conversation_api_contract(setup_user):
     """
     Step 9 — API Contracts:
-    - Create: POST /conversations (Bind to correct user/workspace)
+    - Create: POST /conversations (Bind to user)
     - List: GET /conversations (Scoped + paginated)
-    - Get: GET /conversations/{id} (Reopen, scoped lookup)
-    - Rename: PATCH /conversations/{id} (Change title, no message mutation)
+    - Get: GET /conversations/{id} (Reopen)
+    - Rename: PATCH /conversations/{id} (Change title)
     - Messages: GET /conversations/{id}/messages (Load history in deterministic order)
-    - Chat continuity: carry conversation_id when continuing an existing thread, avoid creating a new conversation for every message
-    - Delete: DELETE /conversations/{id} (Remove thread, safe message cleanup)
+    - Chat continuity: carry conversation_id when continuing an existing thread
+    - Delete: DELETE /conversations/{id}
     """
-    from unittest.mock import patch
-
-    ws, user = setup_user_and_workspace
+    user = setup_user
 
     # 1. Create thread (POST /conversations)
     resp_create = client.post(
         "/conversations/",
         json={
-            "workspace_id": str(ws.id),
             "user_id": str(user.id),
             "title": "Initial Step 9 Thread",
         },
@@ -481,32 +372,18 @@ def test_step_9_conversation_api_contract(setup_user_and_workspace):
     assert resp_create.status_code == 201
     conv_data = resp_create.json()
     assert conv_data["title"] == "Initial Step 9 Thread"
-    assert conv_data["workspace_id"] == str(ws.id)
     assert conv_data["user_id"] == str(user.id)
     conv_id = conv_data["id"]
 
-    # 2. List threads (GET /conversations) - scoped and paginated
-    resp_list_ws = client.get(f"/conversations/?workspace_id={ws.id}&page=1&page_size=10")
-    assert resp_list_ws.status_code == 200
-    assert resp_list_ws.json()["pagination"]["total"] == 1
-
+    # 2. List threads (GET /conversations)
     resp_list_user = client.get(f"/conversations/?user_id={user.id}&page=1&page_size=10")
     assert resp_list_user.status_code == 200
     assert resp_list_user.json()["pagination"]["total"] == 1
 
-    # Calling without any scope returns 422
-    resp_no_scope = client.get("/conversations/")
-    assert resp_no_scope.status_code == 422
-
-    # 3. Get thread (reopen with scoped lookup) (GET /conversations/{id})
-    resp_get = client.get(f"/conversations/{conv_id}?workspace_id={ws.id}&user_id={user.id}")
+    # 3. Get thread
+    resp_get = client.get(f"/conversations/{conv_id}")
     assert resp_get.status_code == 200
     assert resp_get.json()["id"] == conv_id
-
-    # Cross-workspace scoped lookup returns 404
-    fake_ws_id = uuid.uuid4()
-    resp_cross_ws = client.get(f"/conversations/{conv_id}?workspace_id={fake_ws_id}")
-    assert resp_cross_ws.status_code == 404
 
     # 4. Add historical message before rename
     resp_msg1 = client.post(
@@ -515,11 +392,10 @@ def test_step_9_conversation_api_contract(setup_user_and_workspace):
     )
     assert resp_msg1.status_code == 201
 
-    # 5. Rename thread (PATCH /conversations/{id}) - no message mutation
+    # 5. Rename thread (PATCH /conversations/{id})
     resp_rename = client.patch(
         f"/conversations/{conv_id}",
         json={"title": "Updated Thread Title"},
-        params={"workspace_id": str(ws.id), "user_id": str(user.id)},
     )
     assert resp_rename.status_code == 200
     assert resp_rename.json()["title"] == "Updated Thread Title"
@@ -541,7 +417,6 @@ def test_step_9_conversation_api_contract(setup_user_and_workspace):
     assert resp_msgs.status_code == 200
     msgs_data = resp_msgs.json()["messages"]
     assert len(msgs_data) == 2
-    # Deterministic chronological order
     assert msgs_data[0]["content"] == "Message 1 before rename"
     assert msgs_data[1]["content"] == "Message 2 assistant reply"
 
@@ -549,41 +424,35 @@ def test_step_9_conversation_api_contract(setup_user_and_workspace):
     with patch("backend.services.conversation_service.chat_func") as mock_chat:
         mock_chat.return_value = "Turn 1 answer from Rorak"
 
-        # Turn 1 continuing existing thread
         resp_turn1 = client.post(
             "/chat/",
             json={
                 "question": "Chat Turn 1 question",
                 "conversation_id": conv_id,
-                "workspace_id": str(ws.id),
-                "user_id": str(user.id),
             },
         )
         assert resp_turn1.status_code == 200
         assert resp_turn1.json()["conversation_id"] == conv_id
         assert resp_turn1.json()["answer"] == "Turn 1 answer from Rorak"
 
-        # Turn 2 continuing existing thread
         mock_chat.return_value = "Turn 2 answer from Rorak"
         resp_turn2 = client.post(
             "/chat/",
             json={
                 "question": "Chat Turn 2 question",
                 "conversation_id": conv_id,
-                "workspace_id": str(ws.id),
-                "user_id": str(user.id),
             },
         )
         assert resp_turn2.status_code == 200
         assert resp_turn2.json()["conversation_id"] == conv_id
         assert resp_turn2.json()["answer"] == "Turn 2 answer from Rorak"
 
-    # Verify no new duplicate conversations were created for every message
-    resp_list_threads = client.get(f"/conversations/?workspace_id={ws.id}")
+    # Verify no new duplicate conversations were created
+    resp_list_threads = client.get(f"/conversations/?user_id={user.id}")
     assert resp_list_threads.status_code == 200
     assert resp_list_threads.json()["pagination"]["total"] == 1
 
-    # 8. Delete thread (DELETE /conversations/{id}) - safe message cleanup
+    # 8. Delete thread
     resp_del = client.delete(f"/conversations/{conv_id}")
     assert resp_del.status_code == 200
 
@@ -592,14 +461,14 @@ def test_step_9_conversation_api_contract(setup_user_and_workspace):
     assert resp_reopen_deleted.status_code == 404
 
 
-def test_step_10_and_11_frontend_contracts(setup_user_and_workspace):
+def test_step_10_and_11_frontend_contracts(setup_user):
     """
     Step 10 & 11 — End-to-end backend contract support for frontend experience:
     - Default user provisioning
     - Conversation lifecycle with message history deterministic restore
     - Memory list with scope isolation and individual deletion
     """
-    ws, user = setup_user_and_workspace
+    user = setup_user
 
     # 1. Default user endpoint works
     resp_user = client.get("/users/default")
@@ -612,7 +481,6 @@ def test_step_10_and_11_frontend_contracts(setup_user_and_workspace):
     resp_conv = client.post(
         "/conversations/",
         json={
-            "workspace_id": str(ws.id),
             "user_id": str(user.id),
             "title": "Initial Frontend Thread",
         },
@@ -628,7 +496,7 @@ def test_step_10_and_11_frontend_contracts(setup_user_and_workspace):
     assert resp_msg.status_code == 201
 
     # 4. Fetch messages deterministic history
-    resp_messages = client.get(f"/conversations/{conv_id}/messages?workspace_id={ws.id}")
+    resp_messages = client.get(f"/conversations/{conv_id}/messages")
     assert resp_messages.status_code == 200
     msg_data = resp_messages.json()
     assert msg_data["pagination"]["total"] >= 1
@@ -636,34 +504,32 @@ def test_step_10_and_11_frontend_contracts(setup_user_and_workspace):
 
     # 5. Rename conversation
     resp_rename = client.patch(
-        f"/conversations/{conv_id}?workspace_id={ws.id}",
+        f"/conversations/{conv_id}",
         json={"title": "Renamed Frontend Thread"},
     )
     assert resp_rename.status_code == 200
     assert resp_rename.json()["title"] == "Renamed Frontend Thread"
 
-    # 6. Step 11: Create memory and verify scope
+    # 6. Step 11: Create memory
     resp_mem = client.post(
         "/memories/",
         json={
             "user_id": str(user.id),
-            "workspace_id": str(ws.id),
             "content": "User prefers concise answers",
             "memory_type": "user_preference",
         },
     )
     assert resp_mem.status_code == 201
     mem_id = resp_mem.json()["id"]
-    assert resp_mem.json()["workspace_id"] == str(ws.id)
 
-    # 7. List memories with scope
-    resp_mem_list = client.get(f"/memories/?user_id={user.id}&workspace_id={ws.id}&include_global=true")
+    # 7. List memories
+    resp_mem_list = client.get(f"/memories/?user_id={user.id}")
     assert resp_mem_list.status_code == 200
     assert resp_mem_list.json()["pagination"]["total"] >= 1
 
     # 8. Delete individual memory
-    resp_del_mem = client.delete(f"/memories/{mem_id}?user_id={user.id}&workspace_id={ws.id}")
+    resp_del_mem = client.delete(f"/memories/{mem_id}")
     assert resp_del_mem.status_code == 200
 
     # 9. Clean up conversation
-    client.delete(f"/conversations/{conv_id}?workspace_id={ws.id}")
+    client.delete(f"/conversations/{conv_id}")

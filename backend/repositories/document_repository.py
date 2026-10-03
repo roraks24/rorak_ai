@@ -22,60 +22,95 @@ class DocumentRepository:
             stmt
         ).scalar_one_or_none()
 
+    def get_by_user(
+        self,
+        user_id: UUID,
+        conversation_id: UUID | None = None,
+    ) -> list[Document]:
+        stmt = select(Document).where(
+            Document.user_id == user_id
+        )
+        if conversation_id is not None:
+            stmt = stmt.where(Document.conversation_id == conversation_id)
+
+        stmt = stmt.order_by(Document.created_at.desc())
+        return list(
+            self.db.execute(
+                stmt
+            ).scalars().all()
+        )
+
+    def get_by_user_paginated(
+        self,
+        user_id: UUID,
+        conversation_id: UUID | None = None,
+        skip: int = 0,
+        limit: int = 20,
+    ) -> list[Document]:
+        stmt = select(Document).where(Document.user_id == user_id)
+        if conversation_id is not None:
+            stmt = stmt.where(Document.conversation_id == conversation_id)
+        stmt = (
+            stmt.order_by(Document.created_at.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+        return list(
+            self.db.execute(stmt).scalars().all()
+        )
+
+    def count_by_user(
+        self,
+        user_id: UUID,
+        conversation_id: UUID | None = None,
+    ) -> int:
+        stmt = select(func.count(Document.id)).where(
+            Document.user_id == user_id
+        )
+        if conversation_id is not None:
+            stmt = stmt.where(Document.conversation_id == conversation_id)
+        return self.db.execute(stmt).scalar() or 0
+
+    # Backward compatibility aliases for workspace calls
     def get_by_workspace(
         self,
         workspace_id: UUID,
     ) -> list[Document]:
-        stmt = select(Document).where(
-            Document.workspace_id == workspace_id
-        )
-
-        return list(
-            self.db.execute(
-                stmt
-            ).scalars().all()
-        )
+        stmt = select(Document).order_by(Document.created_at.desc())
+        return list(self.db.execute(stmt).scalars().all())
 
     def get_by_workspace_paginated(
         self,
-        workspace_id: UUID,
+        workspace_id: UUID | None = None,
+        conversation_id: UUID | None = None,
+        user_id: UUID | None = None,
         skip: int = 0,
         limit: int = 20,
     ) -> list[Document]:
+        stmt = select(Document)
+        if user_id is not None:
+            stmt = stmt.where(Document.user_id == user_id)
+        if conversation_id is not None:
+            stmt = stmt.where(Document.conversation_id == conversation_id)
         stmt = (
-            select(Document)
-            .where(
-                Document.workspace_id == workspace_id
-            )
-            .order_by(
-                Document.created_at.desc()
-            )
+            stmt.order_by(Document.created_at.desc())
             .offset(skip)
             .limit(limit)
         )
-
-        return list(
-            self.db.execute(
-                stmt
-            ).scalars().all()
-        )
+        return list(self.db.execute(stmt).scalars().all())
 
     def count_by_workspace(
         self,
-        workspace_id: UUID,
+        workspace_id: UUID | None = None,
+        conversation_id: UUID | None = None,
+        user_id: UUID | None = None,
     ) -> int:
-        stmt = select(
-            func.count(Document.id)
-        ).where(
-            Document.workspace_id == workspace_id
-        )
-
-        return (
-            self.db.execute(
-                stmt
-            ).scalar()
-            or 0
-        )
+        stmt = select(func.count(Document.id))
+        if user_id is not None:
+            stmt = stmt.where(Document.user_id == user_id)
+        if conversation_id is not None:
+            stmt = stmt.where(Document.conversation_id == conversation_id)
+        return self.db.execute(stmt).scalar() or 0
 
     def create(
         self,
@@ -96,7 +131,6 @@ class DocumentRepository:
         """
         Persist changes to an existing document.
         """
-
         self.db.add(
             document
         )

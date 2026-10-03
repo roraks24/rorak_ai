@@ -15,8 +15,13 @@
     <meta name="twitter:title" content="Rorak AI | Your AI Assistant">
     <meta name="twitter:description" content="Rorak AI is a document-grounded generative AI assistant. Upload documents and explore grounded answers.">
 
+    <!-- Cache control -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg viewBox='0 0 32 32' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='32' height='32' rx='6' fill='%23111'/%3E%3Cpath d='M8 5h11c4.5 0 8 3.2 8 7.5 0 3.5-2.2 6.2-5.5 7.2L28 28h-5.5l-6-8H13v8H8V5zm5 4v7.5h5.5c2.5 0 4.5-1.7 4.5-3.8s-2-3.7-4.5-3.7H13z' fill='white'/%3E%3C/svg%3E">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=2.7.6">
     <!-- Markdown Parser and DOM Sanitizer for secure rich text rendering -->
     <script src="https://cdn.jsdelivr.net/npm/marked@12.0.1/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.9/dist/purify.min.js"></script>
@@ -27,7 +32,7 @@
 
         <!-- Top disclaimer banner -->
         <div class="disclaimer-bar">
-            Rorak AI can make mistakes. Check important info.
+            Rorak AI can make mistakes.
         </div>
 
         <div class="app-body">
@@ -62,17 +67,6 @@
                             <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                             Chat
                         </a>
-                        <a class="nav-item" id="navDocsBtn" href="#">
-                            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                                <polyline points="14 2 14 8 20 8"></polyline>
-                                <line x1="16" y1="13" x2="8" y2="13"></line>
-                                <line x1="16" y1="17" x2="8" y2="17"></line>
-                                <polyline points="10 9 9 9 8 9"></polyline>
-                            </svg>
-                            Documents
-                            <span class="nav-badge" id="docsCountBadge">0</span>
-                        </a>
                         <a class="nav-item" id="navMemoryBtn" href="#">
                             <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M12 2a5 5 0 0 1 5 5v1a5 5 0 0 1-10 0V7a5 5 0 0 1 5-5z"></path>
@@ -81,7 +75,6 @@
                                 <line x1="8" y1="22" x2="16" y2="22"></line>
                             </svg>
                             Memory
-                            <span class="nav-badge" id="memoriesCountBadge">0</span>
                         </a>
                     </nav>
 
@@ -143,6 +136,19 @@
             <!-- Main content area -->
             <main class="main is-empty" id="mainArea">
 
+                <!-- Chat top corner action bar -->
+                <div class="chat-corner-bar" id="chatCornerBar" style="position: absolute; top: 14px; right: 20px; z-index: 45; display: flex; align-items: center; gap: 10px;">
+                    <button class="btn-files-in-chat" id="btnFilesInChat" title="Files in chat" aria-label="Files in chat" style="display: inline-flex; align-items: center; gap: 8px; background: #1a1a1a; border: 1px solid #333; color: #e5e5e5; border-radius: 20px; padding: 7px 14px; font-size: 13px; font-weight: 500; cursor: pointer;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 16px; height: 16px; min-width: 16px; max-width: 16px; display: inline-block; flex-shrink: 0;">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <line x1="16" y1="13" x2="8" y2="13"></line>
+                            <line x1="16" y1="17" x2="8" y2="17"></line>
+                        </svg>
+                        <span>Files in chat</span>
+                    </button>
+                </div>
+
                 <!-- Empty state hero container (centered before first message) -->
                 <div class="empty-state" id="emptyState">
                     <h1 class="empty-title" id="emptyGreeting">Ready when you are.</h1>
@@ -188,32 +194,31 @@
                     </div>
                 </div>
 
-                <!-- Hidden file input for PDF upload -->
-                <input type="file" id="fileInput" accept=".pdf" hidden>
+                <!-- Hidden file input for document upload -->
+                <input type="file" id="fileInput" accept=".pdf,.docx,.txt,.md,.csv" hidden>
 
-                <!-- Document Library Section (V2.2) -->
-                <section class="docs-section" id="docsSection" style="display: none;">
-                    <div class="docs-header">
-                        <div class="docs-header-left">
-                            <h2 class="docs-title">Document Library</h2>
-                            <p class="docs-subtitle">Manage knowledge artifacts, inspect ingestion state, and ground RAG conversations.</p>
+                <!-- "Files in chat" Slide-over Drawer Panel -->
+                <aside class="chat-files-drawer" id="chatFilesDrawer" aria-label="Files in chat" style="display: none;">
+                    <div class="drawer-header">
+                        <div class="drawer-header-left">
+                            <div class="drawer-header-title-row">
+                                <svg class="drawer-header-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 18px; height: 18px; min-width: 18px; max-width: 18px; flex-shrink: 0;">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                    <polyline points="14 2 14 8 20 8"></polyline>
+                                    <line x1="16" y1="13" x2="8" y2="13"></line>
+                                    <line x1="16" y1="17" x2="8" y2="17"></line>
+                                </svg>
+                                <h3 class="drawer-title">Files in chat</h3>
+                                <span class="drawer-count-badge" id="drawerFilesCount">0</span>
+                            </div>
+                            <p class="drawer-subtitle">Documents isolated to this conversation.</p>
                         </div>
-                        <div class="docs-header-actions">
-                            <button class="btn-secondary" id="docsRefreshBtn" title="Refresh document list">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <polyline points="23 4 23 10 17 10"></polyline>
-                                    <polyline points="1 20 1 14 7 14"></polyline>
-                                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                        <div class="drawer-header-actions">
+                            <button class="btn-drawer-close" id="chatFilesCloseBtn" title="Close panel" aria-label="Close panel">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 16px; height: 16px; flex-shrink: 0;">
+                                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                                    <line x1="6" y1="6" x2="18" y2="18"></line>
                                 </svg>
-                                <span>Refresh</span>
-                            </button>
-                            <button class="btn-primary" id="docsUploadBtn" title="Upload PDF Document">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                    <polyline points="17 8 12 3 7 8"></polyline>
-                                    <line x1="12" y1="3" x2="12" y2="15"></line>
-                                </svg>
-                                <span>Upload PDF</span>
                             </button>
                         </div>
                     </div>
@@ -221,7 +226,7 @@
                     <!-- Upload Progress Bar (Visible during upload) -->
                     <div class="docs-upload-progress" id="docsUploadProgress" style="display: none;">
                         <div class="progress-info">
-                            <span class="progress-file" id="progressFileName">uploading.pdf</span>
+                            <span class="progress-file" id="progressFileName">uploading...</span>
                             <span class="progress-status" id="progressStatusText">Uploading (0%)...</span>
                         </div>
                         <div class="progress-track">
@@ -229,40 +234,20 @@
                         </div>
                     </div>
 
-                    <!-- Metrics bar -->
-                    <div class="docs-metrics-bar" id="docsMetricsBar">
-                        <div class="metric-item">
-                            <span class="metric-label">Total Documents</span>
-                            <span class="metric-value" id="metricTotalDocs">0</span>
-                        </div>
-                        <div class="metric-item">
-                            <span class="metric-label">Ready for Search</span>
-                            <span class="metric-value metric-success" id="metricReadyDocs">0</span>
-                        </div>
-                        <div class="metric-item">
-                            <span class="metric-label">Total Chunks</span>
-                            <span class="metric-value" id="metricTotalChunks">0</span>
-                        </div>
-                        <div class="metric-item">
-                            <span class="metric-label">Total Pages</span>
-                            <span class="metric-value" id="metricTotalPages">0</span>
-                        </div>
-                    </div>
-
                     <!-- Document Cards / List Container -->
-                    <div class="docs-list-container" id="docsListContainer">
-                        <div class="docs-list" id="docsList">
+                    <div class="drawer-list-container" id="docsListContainer">
+                        <div class="drawer-list" id="docsList">
                             <!-- Populated dynamically via script.js -->
                         </div>
                     </div>
 
                     <!-- Pagination Controls -->
-                    <div class="docs-pagination" id="docsPagination" style="display: none;">
-                        <button class="btn-page" id="btnPrevPage" disabled>&larr; Previous</button>
+                    <div class="docs-pagination drawer-pagination" id="docsPagination" style="display: none;">
+                        <button class="btn-page" id="btnPrevPage" disabled>&larr; Prev</button>
                         <span class="page-indicator" id="pageIndicator">Page 1 of 1</span>
                         <button class="btn-page" id="btnNextPage" disabled>Next &rarr;</button>
                     </div>
-                </section>
+                </aside>
 
                 <!-- Memory Management Section (Step 11) -->
                 <section class="docs-section memory-section" id="memorySection" style="display: none;">
@@ -297,11 +282,7 @@
                             <span class="metric-value" id="metricTotalMemories">0</span>
                         </div>
                         <div class="metric-item">
-                            <span class="metric-label">Workspace Scope</span>
-                            <span class="metric-value metric-success" id="metricWorkspaceMemories">0</span>
-                        </div>
-                        <div class="metric-item">
-                            <span class="metric-label">Personal Scope</span>
+                            <span class="metric-label">User Memories</span>
                             <span class="metric-value" id="metricPersonalMemories">0</span>
                         </div>
                     </div>
@@ -352,10 +333,10 @@
                 <button class="modal-close" id="docRenameCloseBtn" title="Close">&times;</button>
             </div>
             <div class="modal-body">
-                <p class="modal-help">Change the display name of this document. The underlying storage key, checksum, and original filename will remain unchanged.</p>
+                <p class="modal-help">Change the file name of this document.</p>
                 <div class="form-group">
-                    <label for="renameInput">Display Name (1–255 characters)</label>
-                    <input type="text" class="text-input" id="renameInput" maxlength="255" autocomplete="off" placeholder="e.g. My Research Notes">
+                    <label for="renameInput">File Name (1–255 characters)</label>
+                    <input type="text" class="text-input" id="renameInput" maxlength="255" autocomplete="off" placeholder="e.g. Research_Paper.pdf">
                     <div class="form-char-count" id="renameCharCount">0 / 255</div>
                 </div>
                 <div class="form-error" id="renameError" style="display: none;"></div>
@@ -383,7 +364,7 @@
                     </svg>
                 </div>
                 <p class="modal-confirm-text">Are you sure you want to delete <strong id="deleteDocName">this document</strong>?</p>
-                <p class="modal-help delete-help">This will permanently remove the document record, all associated chunks, ingestion jobs, physical disk artifacts, and search vector embeddings. This action cannot be undone.</p>
+                <p class="modal-help delete-help">This will permanently remove the document record, search vector embeddings, and physical disk artifacts. This action cannot be undone.</p>
             </div>
             <div class="modal-footer">
                 <button class="btn-secondary" id="docDeleteCancelBtn">Cancel</button>
@@ -489,13 +470,6 @@
                             <option value="system_directive" selected>System Directive</option>
                         </select>
                     </div>
-                    <div class="form-group form-col">
-                        <label for="memoryAddScope">Scope</label>
-                        <select class="select-input" id="memoryAddScope">
-                            <option value="workspace" selected>Workspace Scope</option>
-                            <option value="user">Personal / Global Scope</option>
-                        </select>
-                    </div>
                 </div>
                 <div class="form-error" id="memoryAddError" style="display: none;"></div>
             </div>
@@ -514,13 +488,12 @@
                     <img src="logo.jpg" alt="Rorak AI" class="auth-logo">
                     <div class="auth-brand-text">
                         <span class="auth-title">Rorak AI</span>
-                        <span class="auth-badge">Authentication</span>
                     </div>
                 </div>
                 <button class="modal-close" id="authCloseBtn" title="Close" aria-label="Close dialog">&times;</button>
             </div>
 
-            <p class="auth-subtitle" id="authSubtitle">Sign in to access your workspaces, documents, and conversations.</p>
+            <p class="auth-subtitle" id="authSubtitle">Sign in to access your chats, documents, and memories.</p>
 
             <div class="auth-tabs" role="tablist">
                 <button class="auth-tab active" id="authTabLogin" type="button" role="tab" aria-selected="true">Sign In</button>
@@ -568,6 +541,17 @@
 
             <!-- Register Form -->
             <form class="auth-form" id="registerForm" style="display: none;" novalidate>
+                <div class="form-group">
+                    <label for="registerName">Full Name</label>
+                    <div class="input-with-icon">
+                        <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                            <circle cx="12" cy="7" r="4"></circle>
+                        </svg>
+                        <input type="text" class="text-input" id="registerName" placeholder="Your name" autocomplete="name" required>
+                    </div>
+                </div>
+
                 <div class="form-group">
                     <label for="registerEmail">Email Address</label>
                     <div class="input-with-icon">
@@ -619,6 +603,6 @@
         </div>
     </div>
 
-    <script src="script.js"></script>
+    <script src="script.js?v=2.7.9"></script>
 </body>
 </html>

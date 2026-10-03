@@ -17,12 +17,6 @@ class Conversation(Base):
         default=uuid4,
     )
 
-    workspace_id: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("workspaces.id"),
-        nullable=False,
-        index=True,
-    )
 
     user_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True),

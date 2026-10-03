@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from backend.core.database import get_db
 from backend.core.security import decode_access_token
-from backend.models.db import User, Workspace, WorkspaceMember
+from backend.models.db import User
 
 
 logger = logging.getLogger(__name__)
@@ -93,38 +93,8 @@ def verify_workspace_access(
     user_id: UUID,
     db: Session,
     required_roles: Optional[List[str]] = None,
-) -> WorkspaceMember:
+):
     """
-    Validate that the user is an authorized member of the specified workspace.
-    Raises 404 if workspace does not exist.
-    Raises 403 if user is not a member or lacks required roles.
+    Deprecated: Workspace isolation has been removed.
     """
-    ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
-    if not ws:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"error": {"code": "WORKSPACE_NOT_FOUND", "message": f"Workspace {workspace_id} not found."}},
-        )
-
-    member = (
-        db.query(WorkspaceMember)
-        .filter(
-            WorkspaceMember.workspace_id == workspace_id,
-            WorkspaceMember.user_id == user_id,
-        )
-        .first()
-    )
-
-    if not member:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={"error": {"code": "FORBIDDEN", "message": "You do not have access to this workspace."}},
-        )
-
-    if required_roles and member.role not in required_roles:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={"error": {"code": "FORBIDDEN", "message": "Insufficient permissions for this operation."}},
-        )
-
-    return member
+    return None

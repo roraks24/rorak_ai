@@ -24,41 +24,62 @@ else:
 
 
 def _call_groq_completion(prompt: str) -> Optional[str]:
-    """Execute chat completion call to Groq API."""
+    """Execute chat completion call to Groq API with timeout and retry with backoff."""
     if client is None:
         raise RuntimeError("GROQ_API_KEY is not configured.")
 
-    t0 = time.perf_counter()
-    logger.info("Calling Groq API (model: %s)...", GROQ_MODEL)
+    import groq
 
-    response = client.chat.completions.create(
-        model=GROQ_MODEL,
-        temperature=0.2,
-        messages=[
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ]
-    )
+    max_retries = 2
+    backoff = 1.0
 
-    duration_ms = (time.perf_counter() - t0) * 1000
-    logger.info("Groq API call completed in %.2f ms", duration_ms)
+    for attempt in range(max_retries + 1):
+        t0 = time.perf_counter()
+        logger.info("Calling Groq API (model: %s, attempt: %d)...", GROQ_MODEL, attempt + 1)
+        try:
+            response = client.chat.completions.create(
+                model=GROQ_MODEL,
+                temperature=0.2,
+                timeout=30.0,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ]
+            )
 
-    if not response.choices or not response.choices[0].message:
-        return None
+            duration_ms = (time.perf_counter() - t0) * 1000
+            logger.info("Groq API call completed in %.2f ms", duration_ms)
 
-    return response.choices[0].message.content
+            if not response.choices or not response.choices[0].message:
+                return None
+
+            return response.choices[0].message.content
+
+        except (groq.RateLimitError, groq.APITimeoutError, groq.InternalServerError) as e:
+            if attempt < max_retries:
+                logger.warning("Groq transient error (%s). Retrying in %.1fs...", type(e).__name__, backoff)
+                time.sleep(backoff)
+                backoff *= 2
+            else:
+                logger.error("Groq API failed after %d retries: %s", max_retries, e)
+                raise RuntimeError(f"AI provider temporarily unavailable: {e}")
+        except Exception:
+            raise
 
 
 def chat_func(
     query: str,
     conversation_history: Optional[list] = None,
     memory_context: Optional[list] = None,
+    conversation_id: Optional[object] = None,
+    user_id: Optional[object] = None,
+    **kwargs,
 ) -> str:
     """
     Execute AI generation with stateful context assembly:
-    1. Retrieve and rerank document context from vector store when available.
+    1. Retrieve and rerank document context from vector store (conversation/user-scoped).
     2. Incorporate bounded conversation history and durable memories when provided.
     3. Separate system instructions, memory, history, context, and query.
     4. Call Groq LLM with retry on empty response.
@@ -73,7 +94,9 @@ def chat_func(
     # Step 1: Retrieval
     t0 = time.perf_counter()
     try:
-        results = retriev_func(query)
+        user_str = str(user_id) if user_id else None
+        conv_str = str(conversation_id) if conversation_id else None
+        results = retriev_func(query, user_id=user_str, conversation_id=conv_str)
     except Exception:
         logger.exception("Retrieval failed for query (length %d chars)", len(query))
         results = []
@@ -160,9 +183,10 @@ def chat_func(
         raise RuntimeError("Failed to generate response from AI provider. Please try again.")
 
     total_duration_ms = (time.perf_counter() - t_total_start) * 1000
+    llm_duration_ms = max(0.0, total_duration_ms - t_retrieval_ms - t_rerank_ms)
     logger.info(
-        "Chat request completed in %.2f ms (Retrieval: %.2f ms, Rerank: %.2f ms, Total: %.2f ms)",
-        total_duration_ms, t_retrieval_ms, t_rerank_ms, total_duration_ms
+        "Chat request completed in %.2f ms (Retrieval: %.2f ms, Rerank: %.2f ms, LLM: %.2f ms)",
+        total_duration_ms, t_retrieval_ms, t_rerank_ms, llm_duration_ms
     )
 
     return answer

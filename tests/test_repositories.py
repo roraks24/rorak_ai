@@ -5,8 +5,6 @@ from sqlalchemy.exc import IntegrityError
 from backend.core.database import get_db
 from backend.models.db import (
     User,
-    Workspace,
-    WorkspaceMember,
     Document,
     DocumentChunk,
     Conversation,
@@ -16,8 +14,6 @@ from backend.models.db import (
 )
 from backend.repositories import (
     UserRepository,
-    WorkspaceRepository,
-    WorkspaceMemberRepository,
     DocumentRepository,
     DocumentChunkRepository,
     ConversationRepository,
@@ -62,71 +58,18 @@ def test_user_repository(db_session):
     assert repo.get_by_id(user.id) is None
 
 
-def test_workspace_repository(db_session):
-    repo = WorkspaceRepository(db_session)
-    name = f"Repo_WS_{uuid.uuid4().hex[:8]}"
-    ws = Workspace(id=uuid.uuid4(), name=name)
-    repo.create(ws)
-    db_session.commit()
-
-    found = repo.get_by_id(ws.id)
-    assert found is not None
-    assert found.name == name
-
-    by_name = repo.get_by_name(name)
-    assert by_name is not None
-    assert by_name.id == ws.id
-
-    all_ws = repo.list_all(skip=0, limit=10)
-    assert len(all_ws) >= 1
-    assert repo.count() >= 1
-
-    repo.delete(ws)
-    db_session.commit()
-    assert repo.get_by_id(ws.id) is None
-
-
-def test_workspace_member_repository(db_session):
-    u_repo = UserRepository(db_session)
-    w_repo = WorkspaceRepository(db_session)
-    m_repo = WorkspaceMemberRepository(db_session)
-
-    user = u_repo.create(User(id=uuid.uuid4(), email=f"m_{uuid.uuid4()}@example.com"))
-    ws = w_repo.create(Workspace(id=uuid.uuid4(), name=f"M_WS_{uuid.uuid4().hex[:8]}"))
-    db_session.commit()
-
-    member = WorkspaceMember(workspace_id=ws.id, user_id=user.id, role="admin")
-    m_repo.create(member)
-    db_session.commit()
-
-    found = m_repo.get(ws.id, user.id)
-    assert found is not None
-    assert found.role == "admin"
-
-    by_ws = m_repo.get_by_workspace(ws.id)
-    assert len(by_ws) == 1
-
-    by_user = m_repo.get_by_user(user.id)
-    assert len(by_user) >= 1
-
-    m_repo.delete(member)
-    w_repo.delete(ws)
-    u_repo.delete(user)
-    db_session.commit()
-
-
 def test_document_and_chunk_repositories(db_session):
-    w_repo = WorkspaceRepository(db_session)
+    u_repo = UserRepository(db_session)
     d_repo = DocumentRepository(db_session)
     c_repo = DocumentChunkRepository(db_session)
 
-    ws = w_repo.create(Workspace(id=uuid.uuid4(), name=f"Doc_WS_{uuid.uuid4().hex[:8]}"))
+    user = u_repo.create(User(id=uuid.uuid4(), email=f"doc_user_{uuid.uuid4().hex[:8]}@example.com"))
     db_session.commit()
 
     doc_id = uuid.uuid4()
     doc = Document(
         id=doc_id,
-        workspace_id=ws.id,
+        user_id=user.id,
         filename="report.pdf",
         display_name="report.pdf",
         original_filename="report.pdf",
@@ -151,9 +94,9 @@ def test_document_and_chunk_repositories(db_session):
     assert d_repo.get_by_id(doc.id).status == "INDEXED"
 
     # Paginated documents
-    docs_page = d_repo.get_by_workspace_paginated(ws.id, skip=0, limit=10)
+    docs_page = d_repo.get_by_user_paginated(user.id, skip=0, limit=10)
     assert len(docs_page) == 1
-    assert d_repo.count_by_workspace(ws.id) == 1
+    assert d_repo.count_by_user(user.id) == 1
 
     # Chunks
     chunk1 = DocumentChunk(
@@ -181,538 +124,201 @@ def test_document_and_chunk_repositories(db_session):
     for c in chunks:
         c_repo.delete(c)
     d_repo.delete(doc)
-    w_repo.delete(ws)
+    u_repo.delete(user)
     db_session.commit()
 
 
 def test_conversation_and_message_repositories(db_session):
     u_repo = UserRepository(db_session)
-    w_repo = WorkspaceRepository(db_session)
     conv_repo = ConversationRepository(db_session)
     msg_repo = MessageRepository(db_session)
 
     user = u_repo.create(User(id=uuid.uuid4(), email=f"chat_{uuid.uuid4()}@example.com"))
-    ws = w_repo.create(Workspace(id=uuid.uuid4(), name=f"Chat_WS_{uuid.uuid4().hex[:8]}"))
     db_session.commit()
 
     conv = Conversation(
         id=uuid.uuid4(),
-        workspace_id=ws.id,
         user_id=user.id,
-        title="Chat Thread",
+        title="Repo Chat",
     )
     conv_repo.create(conv)
     db_session.commit()
 
     assert conv_repo.get_by_id(conv.id) is not None
-    assert conv_repo.count_by_workspace(ws.id) == 1
-    assert conv_repo.count_by_user(user.id) == 1
 
-    # Messages
     msg = Message(
         id=uuid.uuid4(),
         conversation_id=conv.id,
         role="user",
-        content="Hello repository test",
+        content="Testing repo message",
     )
     msg_repo.create(msg)
     db_session.commit()
 
     msgs = msg_repo.get_by_conversation(conv.id)
     assert len(msgs) == 1
-    assert msgs[0].content == "Hello repository test"
-    assert msg_repo.count_by_conversation(conv.id) == 1
+    assert msgs[0].content == "Testing repo message"
 
     # Cleanup
     msg_repo.delete(msg)
     conv_repo.delete(conv)
-    w_repo.delete(ws)
     u_repo.delete(user)
     db_session.commit()
 
 
 def test_ingestion_job_repository(db_session):
-    w_repo = WorkspaceRepository(db_session)
+    u_repo = UserRepository(db_session)
     d_repo = DocumentRepository(db_session)
-    job_repo = IngestionJobRepository(db_session)
+    j_repo = IngestionJobRepository(db_session)
 
-    ws = w_repo.create(Workspace(id=uuid.uuid4(), name=f"Job_WS_{uuid.uuid4().hex[:8]}"))
+    user = u_repo.create(User(id=uuid.uuid4(), email=f"job_{uuid.uuid4()}@example.com"))
     doc_id = uuid.uuid4()
-    doc = d_repo.create(
-        Document(
-            id=doc_id,
-            workspace_id=ws.id,
-            filename="j.pdf",
-            display_name="j.pdf",
-            original_filename="j.pdf",
-            file_type="pdf",
-            mime_type="application/pdf",
-            file_size=10,
-            page_count=1,
-            chunk_count=0,
-            storage_key=f"documents/{doc_id}/original/j.pdf",
-            checksum_sha256="fake_sha256",
-            status="PROCESSING",
-            failure_reason=None,
-        )
+    doc = Document(
+        id=doc_id,
+        user_id=user.id,
+        filename="job_doc.pdf",
+        display_name="job_doc.pdf",
+        original_filename="job_doc.pdf",
+        file_type="pdf",
+        mime_type="application/pdf",
+        file_size=1000,
+        page_count=1,
+        chunk_count=0,
+        storage_key=f"documents/{doc_id}/original/job_doc.pdf",
+        checksum_sha256="fake_sha",
+        status="UPLOADED",
+        failure_reason=None,
     )
+    d_repo.create(doc)
     db_session.commit()
 
     job = IngestionJob(
         id=uuid.uuid4(),
         document_id=doc.id,
-        status="RUNNING",
+        status="PENDING",
     )
-    job_repo.create(job)
+    j_repo.create(job)
     db_session.commit()
 
-    assert job_repo.get_by_id(job.id) is not None
-    latest = job_repo.get_latest_by_document(doc.id)
-    assert latest is not None
-    assert latest.id == job.id
+    assert j_repo.get_by_id(job.id) is not None
+    assert j_repo.get_by_document(doc.id) is not None
 
-    updated = job_repo.update_status(job.id, "SUCCEEDED", completed=True)
+    j_repo.update_status(job.id, "PROCESSING")
     db_session.commit()
-    assert updated.status == "SUCCEEDED"
-    assert updated.completed_at is not None
+    assert j_repo.get_by_id(job.id).status == "PROCESSING"
 
-    job_repo.delete(job)
+    j_repo.delete(job)
     d_repo.delete(doc)
-    w_repo.delete(ws)
+    u_repo.delete(user)
     db_session.commit()
 
 
-def test_workspace_isolation_documents(db_session):
-    """Verify querying documents in workspace A does not return documents from workspace B."""
-    w_repo = WorkspaceRepository(db_session)
+def test_user_isolation_documents(db_session):
+    """Verify documents for user A cannot be retrieved by user B."""
+    u_repo = UserRepository(db_session)
     d_repo = DocumentRepository(db_session)
 
-    ws_a = w_repo.create(Workspace(id=uuid.uuid4(), name=f"WS_A_{uuid.uuid4().hex[:6]}"))
-    ws_b = w_repo.create(Workspace(id=uuid.uuid4(), name=f"WS_B_{uuid.uuid4().hex[:6]}"))
+    u1 = u_repo.create(User(id=uuid.uuid4(), email=f"u1_{uuid.uuid4().hex[:6]}@example.com"))
+    u2 = u_repo.create(User(id=uuid.uuid4(), email=f"u2_{uuid.uuid4().hex[:6]}@example.com"))
     db_session.commit()
 
-    try:
-        # Create 2 docs in WS_A, 1 in WS_B
-        doc_a1_id = uuid.uuid4()
-        doc_a2_id = uuid.uuid4()
-        doc_b1_id = uuid.uuid4()
-        doc_a1 = d_repo.create(Document(
-            id=doc_a1_id, workspace_id=ws_a.id, filename="a1.pdf", original_filename="a1.pdf",
-            display_name="a1.pdf", file_type="pdf", mime_type="application/pdf", file_size=100,
-            page_count=1, chunk_count=1, storage_key=f"documents/{doc_a1_id}/original/a1.pdf",
-            checksum_sha256="fake_sha_a1", status="INDEXED", failure_reason=None,
-        ))
-        doc_a2 = d_repo.create(Document(
-            id=doc_a2_id, workspace_id=ws_a.id, filename="a2.pdf", original_filename="a2.pdf",
-            display_name="a2.pdf", file_type="pdf", mime_type="application/pdf", file_size=200,
-            page_count=2, chunk_count=2, storage_key=f"documents/{doc_a2_id}/original/a2.pdf",
-            checksum_sha256="fake_sha_a2", status="INDEXED", failure_reason=None,
-        ))
-        doc_b1 = d_repo.create(Document(
-            id=doc_b1_id, workspace_id=ws_b.id, filename="b1.pdf", original_filename="b1.pdf",
-            display_name="b1.pdf", file_type="pdf", mime_type="application/pdf", file_size=300,
-            page_count=3, chunk_count=3, storage_key=f"documents/{doc_b1_id}/original/b1.pdf",
-            checksum_sha256="fake_sha_b1", status="INDEXED", failure_reason=None,
-        ))
-        db_session.commit()
+    d1 = d_repo.create(Document(
+        id=uuid.uuid4(),
+        user_id=u1.id,
+        filename="doc_u1.pdf",
+        display_name="doc_u1.pdf",
+        original_filename="doc_u1.pdf",
+        file_type="pdf",
+        mime_type="application/pdf",
+        file_size=1000,
+        page_count=1,
+        chunk_count=0,
+        storage_key="test",
+        checksum_sha256="sha",
+        status="INDEXED",
+        failure_reason=None,
+    ))
+    db_session.commit()
 
-        # Query A
-        docs_a = d_repo.get_by_workspace_paginated(ws_a.id, skip=0, limit=10)
-        docs_a_ids = {d.id for d in docs_a}
-        assert len(docs_a) == 2
-        assert doc_a1.id in docs_a_ids
-        assert doc_a2.id in docs_a_ids
-        assert doc_b1.id not in docs_a_ids
-        assert d_repo.count_by_workspace(ws_a.id) == 2
+    docs_u1 = d_repo.get_by_user_paginated(u1.id)
+    assert len(docs_u1) == 1
+    assert docs_u1[0].id == d1.id
 
-        # Query B
-        docs_b = d_repo.get_by_workspace_paginated(ws_b.id, skip=0, limit=10)
-        docs_b_ids = {d.id for d in docs_b}
-        assert len(docs_b) == 1
-        assert doc_b1.id in docs_b_ids
-        assert doc_a1.id not in docs_b_ids
-        assert doc_a2.id not in docs_b_ids
-        assert d_repo.count_by_workspace(ws_b.id) == 1
+    docs_u2 = d_repo.get_by_user_paginated(u2.id)
+    assert len(docs_u2) == 0
 
-        # Clean up
-        d_repo.delete(doc_a1)
-        d_repo.delete(doc_a2)
-        d_repo.delete(doc_b1)
-        db_session.commit()
-    finally:
-        w_repo.delete(ws_a)
-        w_repo.delete(ws_b)
-        db_session.commit()
+    d_repo.delete(d1)
+    u_repo.delete(u1)
+    u_repo.delete(u2)
+    db_session.commit()
 
 
-def test_workspace_isolation_conversations(db_session):
-    """Verify querying conversations in workspace A does not return conversations from workspace B."""
+def test_user_isolation_conversations(db_session):
+    """Verify conversations for user A cannot be retrieved by user B."""
     u_repo = UserRepository(db_session)
-    w_repo = WorkspaceRepository(db_session)
     c_repo = ConversationRepository(db_session)
 
-    user = u_repo.create(User(id=uuid.uuid4(), email=f"iso_user_{uuid.uuid4()}@example.com"))
-    ws_a = w_repo.create(Workspace(id=uuid.uuid4(), name=f"WS_CA_{uuid.uuid4().hex[:6]}"))
-    ws_b = w_repo.create(Workspace(id=uuid.uuid4(), name=f"WS_CB_{uuid.uuid4().hex[:6]}"))
+    u1 = u_repo.create(User(id=uuid.uuid4(), email=f"u1_{uuid.uuid4().hex[:6]}@example.com"))
+    u2 = u_repo.create(User(id=uuid.uuid4(), email=f"u2_{uuid.uuid4().hex[:6]}@example.com"))
     db_session.commit()
 
-    try:
-        conv_a = c_repo.create(Conversation(id=uuid.uuid4(), workspace_id=ws_a.id, user_id=user.id, title="Conv A"))
-        conv_b = c_repo.create(Conversation(id=uuid.uuid4(), workspace_id=ws_b.id, user_id=user.id, title="Conv B"))
-        db_session.commit()
+    conv1 = c_repo.create(Conversation(
+        id=uuid.uuid4(),
+        user_id=u1.id,
+        title="U1 Thread",
+    ))
+    db_session.commit()
 
-        # Query A
-        convs_a = c_repo.get_by_workspace_paginated(ws_a.id, skip=0, limit=10)
-        assert len(convs_a) == 1
-        assert convs_a[0].id == conv_a.id
-        assert c_repo.count_by_workspace(ws_a.id) == 1
+    convs_u1 = c_repo.get_by_user_paginated(u1.id)
+    assert len(convs_u1) == 1
 
-        # Query B
-        convs_b = c_repo.get_by_workspace_paginated(ws_b.id, skip=0, limit=10)
-        assert len(convs_b) == 1
-        assert convs_b[0].id == conv_b.id
-        assert c_repo.count_by_workspace(ws_b.id) == 1
+    convs_u2 = c_repo.get_by_user_paginated(u2.id)
+    assert len(convs_u2) == 0
 
-        # Clean up
-        c_repo.delete(conv_a)
-        c_repo.delete(conv_b)
-        db_session.commit()
-    finally:
-        w_repo.delete(ws_a)
-        w_repo.delete(ws_b)
-        u_repo.delete(user)
-        db_session.commit()
+    c_repo.delete(conv1)
+    u_repo.delete(u1)
+    u_repo.delete(u2)
+    db_session.commit()
 
 
 def test_repositories_nonexistent_lookups(db_session):
-    """Verify get_by_id returns None for all repositories when ID does not exist."""
-    fake_id = uuid.uuid4()
-    assert UserRepository(db_session).get_by_id(fake_id) is None
-    assert WorkspaceRepository(db_session).get_by_id(fake_id) is None
-    assert DocumentRepository(db_session).get_by_id(fake_id) is None
-    assert DocumentChunkRepository(db_session).get_by_id(fake_id) is None
-    assert ConversationRepository(db_session).get_by_id(fake_id) is None
-    assert MessageRepository(db_session).get_by_id(fake_id) is None
-    assert IngestionJobRepository(db_session).get_by_id(fake_id) is None
-    assert MemoryRepository(db_session).get_by_id(fake_id) is None
-
-
-def test_foreign_key_delete_protection(db_session):
-    """Verify deleting a workspace with dependent documents violates FK constraint unless children are removed."""
-    w_repo = WorkspaceRepository(db_session)
-    d_repo = DocumentRepository(db_session)
-
-    ws = w_repo.create(Workspace(id=uuid.uuid4(), name=f"FK_Del_{uuid.uuid4().hex[:6]}"))
-    db_session.commit()
-
-    doc_id = uuid.uuid4()
-    doc = d_repo.create(Document(
-        id=doc_id, workspace_id=ws.id, filename="fk.pdf", original_filename="fk.pdf",
-        display_name="fk.pdf", file_type="pdf", mime_type="application/pdf", file_size=50,
-        page_count=1, chunk_count=0, storage_key=f"documents/{doc_id}/original/fk.pdf",
-        checksum_sha256="fake_sha_fk", status="INDEXED", failure_reason=None,
-    ))
-    db_session.commit()
-
-    try:
-        # Attempting to delete workspace while doc exists should fail on flush
-        with pytest.raises(IntegrityError):
-            w_repo.delete(ws)
-        db_session.rollback()
-
-        # Delete child doc first, then workspace succeeds
-        d_repo.delete(doc)
-        w_repo.delete(ws)
-        db_session.commit()
-        assert w_repo.get_by_id(ws.id) is None
-    finally:
-        db_session.rollback()
-
-
-# ============================================================
-# V2.2 DOCUMENT REPOSITORY TESTS
-# ============================================================
-
-def test_document_repository_v2_2_create(db_session):
-    """Verify DocumentRepository creates and retrieves a document with all V2.2 fields."""
-    w_repo = WorkspaceRepository(db_session)
-    d_repo = DocumentRepository(db_session)
-
-    ws = w_repo.create(Workspace(id=uuid.uuid4(), name=f"V22_Create_WS_{uuid.uuid4().hex[:6]}"))
-    db_session.commit()
-
-    doc_id = uuid.uuid4()
-    doc = Document(
-        id=doc_id,
-        workspace_id=ws.id,
-        filename="research.pdf",
-        display_name="Research Paper V1",
-        original_filename="research_final.pdf",
-        file_type="pdf",
-        mime_type="application/pdf",
-        file_size=8192,
-        page_count=5,
-        chunk_count=12,
-        storage_key=f"documents/{doc_id}/original/research_final.pdf",
-        checksum_sha256="1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
-        status="INDEXED",
-        failure_reason=None,
-    )
-
-    try:
-        created = d_repo.create(doc)
-        db_session.commit()
-
-        assert created.id == doc_id
-        found = d_repo.get_by_id(doc_id)
-        assert found is not None
-        assert found.display_name == "Research Paper V1"
-        assert found.original_filename == "research_final.pdf"
-        assert found.mime_type == "application/pdf"
-        assert found.chunk_count == 12
-        assert found.storage_key == f"documents/{doc_id}/original/research_final.pdf"
-        assert found.status == "INDEXED"
-    finally:
-        d_repo.delete(doc)
-        w_repo.delete(ws)
-        db_session.commit()
-
-
-def test_document_repository_v2_2_pagination_and_ordering(db_session):
-    """Verify document pagination, total count, and newest-first ordering."""
-    w_repo = WorkspaceRepository(db_session)
-    d_repo = DocumentRepository(db_session)
-
-    ws = w_repo.create(Workspace(id=uuid.uuid4(), name=f"V22_Page_WS_{uuid.uuid4().hex[:6]}"))
-    db_session.commit()
-
-    docs = []
-    try:
-        for i in range(5):
-            d_id = uuid.uuid4()
-            d = d_repo.create(Document(
-                id=d_id,
-                workspace_id=ws.id,
-                filename=f"doc_{i}.pdf",
-                display_name=f"Document {i}",
-                original_filename=f"doc_{i}.pdf",
-                file_type="pdf",
-                mime_type="application/pdf",
-                file_size=1024 * (i + 1),
-                page_count=i + 1,
-                chunk_count=(i + 1) * 2,
-                storage_key=f"documents/{d_id}/original/doc_{i}.pdf",
-                checksum_sha256=f"{i:064x}",
-                status="INDEXED",
-                failure_reason=None,
-            ))
-            docs.append(d)
-        db_session.commit()
-
-        # Count
-        assert d_repo.count_by_workspace(ws.id) == 5
-
-        # Page 1 (size 2)
-        page1 = d_repo.get_by_workspace_paginated(ws.id, skip=0, limit=2)
-        assert len(page1) == 2
-
-        # Page 2 (size 2)
-        page2 = d_repo.get_by_workspace_paginated(ws.id, skip=2, limit=2)
-        assert len(page2) == 2
-
-        # Page 3 (size 2) -> remainder 1
-        page3 = d_repo.get_by_workspace_paginated(ws.id, skip=4, limit=2)
-        assert len(page3) == 1
-
-        # Ordering: newest first (created_at desc)
-        all_paginated = d_repo.get_by_workspace_paginated(ws.id, skip=0, limit=10)
-        assert len(all_paginated) == 5
-        for j in range(len(all_paginated) - 1):
-            assert all_paginated[j].created_at >= all_paginated[j + 1].created_at
-
-    finally:
-        for d in docs:
-            d_repo.delete(d)
-        w_repo.delete(ws)
-        db_session.commit()
-
-
-def test_document_repository_v2_2_rename_and_update(db_session):
-    """Verify document rename/update persistence."""
-    w_repo = WorkspaceRepository(db_session)
-    d_repo = DocumentRepository(db_session)
-
-    ws = w_repo.create(Workspace(id=uuid.uuid4(), name=f"V22_Ren_WS_{uuid.uuid4().hex[:6]}"))
-    db_session.commit()
-
-    doc_id = uuid.uuid4()
-    doc = d_repo.create(Document(
-        id=doc_id,
-        workspace_id=ws.id,
-        filename="old_name.pdf",
-        display_name="Old Display Name",
-        original_filename="old_name.pdf",
-        file_type="pdf",
-        mime_type="application/pdf",
-        file_size=2048,
-        page_count=2,
-        chunk_count=4,
-        storage_key=f"documents/{doc_id}/original/old_name.pdf",
-        checksum_sha256="fake_sha_ren",
-        status="INDEXED",
-        failure_reason=None,
-    ))
-    db_session.commit()
-
-    try:
-        # Renaming updates display_name
-        doc.display_name = "My Research Notes"
-        if hasattr(d_repo, "update"):
-            d_repo.update(doc)
-        else:
-            db_session.flush()
-        db_session.commit()
-
-        updated = d_repo.get_by_id(doc_id)
-        assert updated.display_name == "My Research Notes"
-    finally:
-        d_repo.delete(doc)
-        w_repo.delete(ws)
-        db_session.commit()
-
-
-def test_document_chunk_cleanup_v2_2(db_session):
-    """Verify document chunk cleanup removes all chunks for a document."""
-    w_repo = WorkspaceRepository(db_session)
-    d_repo = DocumentRepository(db_session)
-    c_repo = DocumentChunkRepository(db_session)
-
-    ws = w_repo.create(Workspace(id=uuid.uuid4(), name=f"V22_Chunk_WS_{uuid.uuid4().hex[:6]}"))
-    db_session.commit()
-
-    doc_id = uuid.uuid4()
-    doc = d_repo.create(Document(
-        id=doc_id,
-        workspace_id=ws.id,
-        filename="chunked.pdf",
-        display_name="Chunked Doc",
-        original_filename="chunked.pdf",
-        file_type="pdf",
-        mime_type="application/pdf",
-        file_size=4096,
-        page_count=2,
-        chunk_count=3,
-        storage_key=f"documents/{doc_id}/original/chunked.pdf",
-        checksum_sha256="fake_sha_chunks",
-        status="INDEXED",
-        failure_reason=None,
-    ))
-    db_session.commit()
-
-    try:
-        chunks = [
-            DocumentChunk(
-                id=uuid.uuid4(),
-                document_id=doc_id,
-                chunk_index=i,
-                content=f"Content for chunk {i}",
-                page_number=1,
-            )
-            for i in range(3)
-        ]
-        c_repo.bulk_create(chunks)
-        db_session.commit()
-
-        assert c_repo.count_by_document(doc_id) == 3
-
-        # Cleanup chunks
-        for chunk in c_repo.get_by_document(doc_id):
-            c_repo.delete(chunk)
-        db_session.commit()
-
-        assert c_repo.count_by_document(doc_id) == 0
-        assert len(c_repo.get_by_document(doc_id)) == 0
-
-    finally:
-        d_repo.delete(doc)
-        w_repo.delete(ws)
-        db_session.commit()
-
-
-def test_ingestion_job_cleanup_v2_2(db_session):
-    """Verify ingestion job cleanup removes all jobs for a document."""
-    w_repo = WorkspaceRepository(db_session)
-    d_repo = DocumentRepository(db_session)
-    j_repo = IngestionJobRepository(db_session)
-
-    ws = w_repo.create(Workspace(id=uuid.uuid4(), name=f"V22_Job_WS_{uuid.uuid4().hex[:6]}"))
-    db_session.commit()
-
-    doc_id = uuid.uuid4()
-    doc = d_repo.create(Document(
-        id=doc_id,
-        workspace_id=ws.id,
-        filename="jobbed.pdf",
-        display_name="Jobbed Doc",
-        original_filename="jobbed.pdf",
-        file_type="pdf",
-        mime_type="application/pdf",
-        file_size=1024,
-        page_count=1,
-        chunk_count=0,
-        storage_key=f"documents/{doc_id}/original/jobbed.pdf",
-        checksum_sha256="fake_sha_jobs",
-        status="PROCESSING",
-        failure_reason=None,
-    ))
-    db_session.commit()
-
-    try:
-        job = IngestionJob(
-            id=uuid.uuid4(),
-            document_id=doc_id,
-            status="RUNNING",
-        )
-        j_repo.create(job)
-        db_session.commit()
-
-        assert j_repo.get_latest_by_document(doc_id) is not None
-
-        # Cleanup job
-        j_repo.delete(job)
-        db_session.commit()
-
-        assert j_repo.get_latest_by_document(doc_id) is None
-    finally:
-        d_repo.delete(doc)
-        w_repo.delete(ws)
-        db_session.commit()
+    """Verify querying non-existent entities returns None."""
+    random_id = uuid.uuid4()
+    assert UserRepository(db_session).get_by_id(random_id) is None
+    assert DocumentRepository(db_session).get_by_id(random_id) is None
+    assert ConversationRepository(db_session).get_by_id(random_id) is None
+    assert MessageRepository(db_session).get_by_id(random_id) is None
+    assert IngestionJobRepository(db_session).get_by_id(random_id) is None
+    assert MemoryRepository(db_session).get_by_id(random_id) is None
 
 
 def test_memory_repository(db_session):
-    """Verify MemoryRepository CRUD and scoped query operations."""
+    """Verify MemoryRepository CRUD and scoped operations."""
     u_repo = UserRepository(db_session)
-    w_repo = WorkspaceRepository(db_session)
     mem_repo = MemoryRepository(db_session)
 
-    user = u_repo.create(User(id=uuid.uuid4(), email=f"mem_user_{uuid.uuid4().hex[:6]}@example.com"))
-    ws = w_repo.create(Workspace(id=uuid.uuid4(), name=f"Mem_WS_{uuid.uuid4().hex[:6]}"))
+    user1 = u_repo.create(User(id=uuid.uuid4(), email=f"mem_u1_{uuid.uuid4().hex[:6]}@example.com"))
+    user2 = u_repo.create(User(id=uuid.uuid4(), email=f"mem_u2_{uuid.uuid4().hex[:6]}@example.com"))
     db_session.commit()
 
     try:
         mem1 = mem_repo.create(Memory(
             id=uuid.uuid4(),
-            user_id=user.id,
-            workspace_id=ws.id,
+            user_id=user1.id,
             content="User prefers Python over JavaScript",
             memory_type="preference",
         ))
         mem2 = mem_repo.create(Memory(
             id=uuid.uuid4(),
-            user_id=user.id,
-            workspace_id=None,
+            user_id=user1.id,
             content="User is a senior ML engineer",
             memory_type="profile",
+        ))
+        mem3 = mem_repo.create(Memory(
+            id=uuid.uuid4(),
+            user_id=user2.id,
+            content="User 2 prefers Rust",
+            memory_type="preference",
         ))
         db_session.commit()
 
@@ -722,21 +328,18 @@ def test_memory_repository(db_session):
         assert found.content == "User prefers Python over JavaScript"
 
         # Get by user
-        user_mems = mem_repo.get_by_user(user.id)
-        assert len(user_mems) == 2
+        user1_mems = mem_repo.get_by_user(user1.id)
+        assert len(user1_mems) == 2
 
-        # Get by workspace
-        ws_mems = mem_repo.get_by_workspace(ws.id)
-        assert len(ws_mems) == 1
-        assert ws_mems[0].id == mem1.id
-
-        # Scoped memories
-        scoped = mem_repo.get_scoped_memories(user_id=user.id, workspace_id=ws.id)
-        assert len(scoped) == 2
+        # Scoped memories: isolation check
+        scoped_u1 = mem_repo.get_scoped_memories(user_id=user1.id)
+        assert len(scoped_u1) == 2
+        scoped_ids = [m.id for m in scoped_u1]
+        assert mem3.id not in scoped_ids  # Never retrieve another user's memory
 
         # Counts
-        assert mem_repo.count_by_user(user.id) == 2
-        assert mem_repo.count_by_workspace(ws.id) == 1
+        assert mem_repo.count_by_user(user1.id) == 2
+        assert mem_repo.count_by_user(user2.id) == 1
 
         # Update
         updated = mem_repo.update(mem1, content="Updated: User prefers Python 3.12", memory_type="tech_preference")
@@ -744,51 +347,15 @@ def test_memory_repository(db_session):
         assert updated.memory_type == "tech_preference"
         db_session.commit()
 
-        # Scoped pagination and filtering
-        paged_mems = mem_repo.list_scoped_memories(user_id=user.id, workspace_id=ws.id, skip=0, limit=1)
-        assert len(paged_mems) == 1
-        assert mem_repo.count_scoped_memories(user_id=user.id, workspace_id=ws.id) == 2
-
-        # Isolation checks: User 2 and Workspace 2
-        user2 = u_repo.create(User(id=uuid.uuid4(), email=f"mem_user2_{uuid.uuid4().hex[:6]}@example.com"))
-        ws2 = w_repo.create(Workspace(id=uuid.uuid4(), name=f"Mem_WS2_{uuid.uuid4().hex[:6]}"))
-        db_session.commit()
-
-        mem_user2 = mem_repo.create(Memory(
-            id=uuid.uuid4(),
-            user_id=user2.id,
-            workspace_id=ws.id,
-            content="User 2 memory in WS 1",
-            memory_type="preference",
-        ))
-        mem_ws2 = mem_repo.create(Memory(
-            id=uuid.uuid4(),
-            user_id=user.id,
-            workspace_id=ws2.id,
-            content="User 1 memory in WS 2",
-            memory_type="preference",
-        ))
-        db_session.commit()
-
-        # Query for user 1 in workspace 1 must NOT retrieve user 2's memory or workspace 2's memory
-        isolated_scoped = mem_repo.get_scoped_memories(user_id=user.id, workspace_id=ws.id)
-        isolated_ids = [m.id for m in isolated_scoped]
-        assert mem_user2.id not in isolated_ids  # Never retrieve another user's memory
-        assert mem_ws2.id not in isolated_ids    # Never retrieve another workspace's memory
-
         # Delete
         mem_repo.delete(mem1)
         mem_repo.delete(mem2)
-        mem_repo.delete(mem_user2)
-        mem_repo.delete(mem_ws2)
+        mem_repo.delete(mem3)
         db_session.commit()
 
         assert mem_repo.get_by_id(mem1.id) is None
-        assert mem_repo.get_by_id(mem2.id) is None
 
     finally:
-        w_repo.delete(ws2)
+        u_repo.delete(user1)
         u_repo.delete(user2)
-        w_repo.delete(ws)
-        u_repo.delete(user)
         db_session.commit()

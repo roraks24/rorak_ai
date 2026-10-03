@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 
@@ -19,7 +20,6 @@ from backend.routes import (
     health,
     memories,
     users,
-    workspaces,
 )
 from backend.rag import vector_store as vector_store_module
 
@@ -48,7 +48,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(
         self,
         app,
-        max_requests: int = 30,
+        max_requests: int = 120,
         window_seconds: int = 60,
     ):
         super().__init__(app)
@@ -83,6 +83,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             if request.client
             else "unknown"
         )
+
+        # Exempt health and readiness probes from rate limiting
+        path = request.url.path.rstrip("/")
+        if path in ("/health", "/ready"):
+            return await call_next(request)
 
         now = time.time()
 
@@ -297,7 +302,7 @@ app.add_middleware(
 
 app.add_middleware(
     RateLimitMiddleware,
-    max_requests=30,
+    max_requests=120,
     window_seconds=60,
 )
 
@@ -337,10 +342,6 @@ app.include_router(
 
 app.include_router(
     documents.router
-)
-
-app.include_router(
-    workspaces.router
 )
 
 app.include_router(

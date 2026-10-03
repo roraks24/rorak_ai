@@ -79,17 +79,37 @@ def register_user(
             detail={"error": {"code": "DUPLICATE_EMAIL", "message": "A user with this email address already exists."}},
         )
 
+    clean_name = payload.name.strip() if payload.name and payload.name.strip() else None
+
     hashed = hash_password(payload.password)
     user = User(
         id=uuid4(),
         email=clean_email,
+        name=clean_name,
         password_hash=hashed,
     )
     repo.create(user)
+
+    if clean_name:
+        try:
+            from backend.repositories.memory_repository import MemoryRepository
+            from backend.models.db.memory import Memory
+            mem_repo = MemoryRepository(db)
+            mem_repo.create(
+                Memory(
+                    id=uuid4(),
+                    user_id=user.id,
+                    content=f"User's name is {clean_name}",
+                    memory_type="user_preference",
+                )
+            )
+        except Exception as e:
+            logger.warning("Could not auto-create memory for user name: %s", e)
+
     db.commit()
     db.refresh(user)
 
-    logger.info("Successfully registered new user: %s (ID: %s)", user.email, user.id)
+    logger.info("Successfully registered new user: %s (ID: %s, Name: %s)", user.email, user.id, user.name)
     return user
 
 

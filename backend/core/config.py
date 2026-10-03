@@ -68,7 +68,7 @@ DOCUMENTS_DIR = BASE_DIR / "documents"
 MAX_UPLOAD_SIZE_BYTES = int(
     os.getenv("MAX_UPLOAD_SIZE_BYTES", str(10 * 1024 * 1024))  # 10 MB default
 )
-ALLOWED_EXTENSIONS = {".pdf"}
+ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md", ".csv"}
 
 
 # Logging configuration
@@ -76,10 +76,15 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
 
 # Authentication & JWT configuration
-JWT_SECRET_KEY = os.getenv(
-    "JWT_SECRET_KEY",
-    "rorak-ai-v2.6-insecure-default-secret-key-change-in-prod"
-)
+_DEFAULT_INSECURE_KEY = "rorak-ai-v2.6-insecure-default-secret-key-change-in-prod"
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", _DEFAULT_INSECURE_KEY)
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
+
+if JWT_SECRET_KEY == _DEFAULT_INSECURE_KEY and ENVIRONMENT in {"production", "prod"}:
+    raise RuntimeError("Insecure default JWT_SECRET_KEY cannot be used in production. Set JWT_SECRET_KEY in environment.")
+elif JWT_SECRET_KEY == _DEFAULT_INSECURE_KEY:
+    logger.warning("Using default insecure JWT_SECRET_KEY for development. Change this in production!")
+
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(
     os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", str(60 * 24))

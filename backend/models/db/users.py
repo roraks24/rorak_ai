@@ -22,6 +22,11 @@ class User(Base):
         nullable=False
     )
 
+    name: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True
+    )
+
     password_hash: Mapped[Optional[str]] = mapped_column(
         String(255),
         nullable=True

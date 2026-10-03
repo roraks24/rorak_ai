@@ -1,6 +1,4 @@
 from backend.models.db.users import User
-from backend.models.db.workspace import Workspace
-from backend.models.db.workspace_members import WorkspaceMember
 from backend.models.db.document import Document
 from backend.models.db.document_chunk import DocumentChunk
 from backend.models.db.conversation import Conversation

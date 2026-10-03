@@ -1,6 +1,7 @@
 import logging
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from typing import Optional
 from uuid import UUID
 
 from fastapi import (
@@ -14,7 +15,7 @@ from fastapi import (
 )
 from sqlalchemy.orm import Session
 
-from backend.core.auth import get_current_user, verify_workspace_access
+from backend.core.auth import get_current_user
 from backend.core.database import get_db
 from backend.models.db import User
 from backend.models.db.document import Document
@@ -60,23 +61,34 @@ router = APIRouter(
         400: {"model": APIErrorResponse, "description": "Validation Error"},
         401: {"model": APIErrorResponse, "description": "Unauthorized"},
         403: {"model": APIErrorResponse, "description": "Forbidden"},
-        404: {"model": APIErrorResponse, "description": "Workspace Not Found"},
+        404: {"model": APIErrorResponse, "description": "Not Found"},
     },
 )
 async def upload_document(
-    workspace_id: UUID = Query(
-        ...,
-        description="Workspace that will own the document",
+    workspace_id: Optional[UUID] = Query(
+        None,
+        description="Deprecated: Workspaces are no longer used",
+    ),
+    conversation_id: Optional[UUID] = Query(
+        None,
+        description="Optional conversation/chat that will own the document",
     ),
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
-    Upload and ingest a document into a workspace.
-    Requires workspace membership.
+    Upload and ingest a document directly for the authenticated user and optional conversation.
     """
-    verify_workspace_access(workspace_id=workspace_id, user_id=current_user.id, db=db)
+    if conversation_id:
+        from backend.services.conversation_service import ConversationService
+        conv_service = ConversationService(db)
+        conv = conv_service.get_conversation(conversation_id=conversation_id, user_id=current_user.id)
+        if conv.user_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have access to this conversation.",
+            )
 
     if not file.filename:
         raise HTTPException(
@@ -92,10 +104,14 @@ async def upload_document(
         original_filename
     ).suffix.lower()
 
-    if extension != ".pdf":
+    SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md", ".csv"}
+    if extension not in SUPPORTED_EXTENSIONS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only PDF files are supported.",
+            detail=(
+                f"Unsupported file type '{extension}'. "
+                f"Supported formats: {', '.join(sorted(SUPPORTED_EXTENSIONS))}"
+            ),
         )
 
     service = DocumentService(db)
@@ -105,7 +121,7 @@ async def upload_document(
     try:
         # Save uploaded file to a temporary location.
         with NamedTemporaryFile(
-            suffix=".pdf",
+            suffix=extension,
             delete=False,
         ) as temporary_file:
             temporary_path = Path(
@@ -130,13 +146,24 @@ async def upload_document(
                     chunk
                 )
 
+                from backend.core.config import MAX_UPLOAD_SIZE_BYTES
+                if total_size > MAX_UPLOAD_SIZE_BYTES:
+                    temporary_file.close()
+                    if temporary_path and temporary_path.exists():
+                        temporary_path.unlink()
+                    raise HTTPException(
+                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        detail=f"Uploaded file exceeds maximum allowed size of {MAX_UPLOAD_SIZE_BYTES // (1024 * 1024)} MB.",
+                    )
+
         # Delegate complete ingestion workflow to the service.
         document, job, chunk_count = (
             service.ingest_document(
-                workspace_id=workspace_id,
+                user_id=current_user.id,
                 file_path=temporary_path,
                 original_filename=original_filename,
                 file_size=total_size,
+                conversation_id=conversation_id,
             )
         )
 
@@ -185,7 +212,7 @@ async def upload_document(
 
 
 # ============================================================
-# LIST WORKSPACE DOCUMENTS
+# LIST DOCUMENTS
 # ============================================================
 
 @router.get(
@@ -196,13 +223,17 @@ async def upload_document(
         400: {"model": APIErrorResponse, "description": "Validation Error"},
         401: {"model": APIErrorResponse, "description": "Unauthorized"},
         403: {"model": APIErrorResponse, "description": "Forbidden"},
-        404: {"model": APIErrorResponse, "description": "Workspace Not Found"},
+        404: {"model": APIErrorResponse, "description": "Not Found"},
     },
 )
-def get_workspace_documents(
-    workspace_id: UUID = Query(
-        ...,
-        description="Workspace whose documents should be listed",
+def get_documents(
+    workspace_id: Optional[UUID] = Query(
+        default=None,
+        description="Deprecated: workspace ID is ignored",
+    ),
+    conversation_id: Optional[UUID] = Query(
+        default=None,
+        description="Optional conversation whose documents should be listed",
     ),
     page: int = Query(
         default=1,
@@ -219,27 +250,24 @@ def get_workspace_documents(
     db: Session = Depends(get_db),
 ):
     """
-    List documents belonging to a workspace.
-    Requires workspace membership.
+    List documents belonging to the authenticated user (optionally filtered by conversation).
     """
-    verify_workspace_access(workspace_id=workspace_id, user_id=current_user.id, db=db)
-
     service = DocumentService(db)
 
     try:
         documents, total = (
-            service.get_workspace_documents(
-                workspace_id=workspace_id,
+            service.get_user_documents(
+                user_id=current_user.id,
+                conversation_id=conversation_id,
                 page=page,
                 page_size=page_size,
             )
         )
 
         total_pages = (
-            (total + page_size - 1)
-            // page_size
+            max(1, (total + page_size - 1) // page_size)
             if total > 0
-            else 0
+            else 1
         )
 
         return DocumentListResponse(
@@ -284,8 +312,7 @@ def get_document(
     db: Session = Depends(get_db),
 ):
     """
-    Get a single document by ID.
-    Requires workspace membership.
+    Get a single document by ID with user ownership check.
     """
     service = DocumentService(db)
 
@@ -294,8 +321,11 @@ def get_document(
             document_id
         )
 
-        # Validate access to the owning workspace
-        verify_workspace_access(workspace_id=document.workspace_id, user_id=current_user.id, db=db)
+        if document.user_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"error": {"code": "FORBIDDEN", "message": "You do not have access to this document."}},
+            )
 
         return _document_response(
             document
@@ -331,7 +361,6 @@ def rename_document(
 ):
     """
     Rename the user-facing display name of a document.
-    Requires workspace membership.
     """
     if not request.display_name or not request.display_name.strip():
         raise HTTPException(
@@ -343,7 +372,11 @@ def rename_document(
 
     try:
         document = service.get_document(document_id)
-        verify_workspace_access(workspace_id=document.workspace_id, user_id=current_user.id, db=db)
+        if document.user_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"error": {"code": "FORBIDDEN", "message": "You do not have access to this document."}},
+            )
 
         document = service.rename_document(
             document_id=document_id,
@@ -387,13 +420,16 @@ def delete_document(
 ):
     """
     Delete one document and all associated resources.
-    Requires workspace membership.
     """
     service = DocumentService(db)
 
     try:
         document = service.get_document(document_id)
-        verify_workspace_access(workspace_id=document.workspace_id, user_id=current_user.id, db=db)
+        if document.user_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"error": {"code": "FORBIDDEN", "message": "You do not have access to this document."}},
+            )
 
         service.delete_document(
             document_id
@@ -417,14 +453,11 @@ def _document_response(
 ) -> DocumentResponse:
     """
     Convert a Document ORM object into the public API schema.
-
-    Internal storage paths, secrets, and internal tracebacks
-    are deliberately not exposed.
     """
-
     return DocumentResponse(
         id=document.id,
-        workspace_id=document.workspace_id,
+        user_id=document.user_id,
+        conversation_id=document.conversation_id,
         filename=document.filename,
         original_filename=document.original_filename,
         display_name=document.display_name,

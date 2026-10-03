@@ -6,8 +6,6 @@ from sqlalchemy.exc import IntegrityError
 from backend.core.database import Base, get_db
 from backend.models.db import (
     User,
-    Workspace,
-    WorkspaceMember,
     Document,
     DocumentChunk,
     Conversation,
@@ -18,11 +16,9 @@ from backend.models.db import (
 
 
 def test_models_inherit_from_base():
-    """Verify all 9 entities inherit from declarative Base."""
+    """Verify all 7 core entities inherit from declarative Base."""
     for model_cls in [
         User,
-        Workspace,
-        WorkspaceMember,
         Document,
         DocumentChunk,
         Conversation,
@@ -37,8 +33,6 @@ def test_all_metadata_tables_present():
     """Verify all required tables exist in Base metadata."""
     expected_tables = {
         "users",
-        "workspaces",
-        "workspace_members",
         "documents",
         "document_chunks",
         "conversations",
@@ -66,11 +60,8 @@ def test_user_uniqueness_constraint():
             db.commit()
     finally:
         db.rollback()
-        # Clean up user1
-        existing = db.query(User).filter(User.email == unique_email).first()
-        if existing:
-            db.delete(existing)
-            db.commit()
+        db.query(User).filter(User.email == unique_email).delete()
+        db.commit()
         try:
             next(db_gen)
         except StopIteration:
@@ -85,20 +76,12 @@ def test_full_model_relationships():
         # Create user
         user = User(id=uuid.uuid4(), email=f"rel_{uuid.uuid4()}@example.com")
         db.add(user)
-
-        # Create workspace
-        ws = Workspace(id=uuid.uuid4(), name=f"WS_{uuid.uuid4().hex[:8]}")
-        db.add(ws)
         db.commit()
-
-        # Create workspace membership
-        member = WorkspaceMember(workspace_id=ws.id, user_id=user.id, role="owner")
-        db.add(member)
 
         # Create document
         doc = Document(
             id=uuid.uuid4(),
-            workspace_id=ws.id,
+            user_id=user.id,
             filename="test.pdf",
             display_name="test.pdf",
             original_filename="test.pdf",
@@ -111,7 +94,7 @@ def test_full_model_relationships():
             checksum_sha256=None,
             status="INDEXED",
             failure_reason=None,
-)
+        )
         db.add(doc)
         db.commit()
 
@@ -136,7 +119,6 @@ def test_full_model_relationships():
         # Create conversation
         conv = Conversation(
             id=uuid.uuid4(),
-            workspace_id=ws.id,
             user_id=user.id,
             title="Test Conversation",
         )
@@ -156,7 +138,6 @@ def test_full_model_relationships():
         mem = Memory(
             id=uuid.uuid4(),
             user_id=user.id,
-            workspace_id=ws.id,
             content="User prefers brief summaries",
             memory_type="user_preference",
         )
@@ -167,7 +148,6 @@ def test_full_model_relationships():
         assert db.query(DocumentChunk).filter(DocumentChunk.document_id == doc.id).count() == 1
         assert db.query(Message).filter(Message.conversation_id == conv.id).count() == 1
         assert db.query(IngestionJob).filter(IngestionJob.document_id == doc.id).count() == 1
-        assert db.query(WorkspaceMember).filter(WorkspaceMember.workspace_id == ws.id).count() == 1
         assert db.query(Memory).filter(Memory.user_id == user.id).count() == 1
 
         # Clean up child entities first with flush
@@ -179,10 +159,8 @@ def test_full_model_relationships():
 
         db.delete(conv)
         db.delete(doc)
-        db.delete(member)
         db.flush()
 
-        db.delete(ws)
         db.delete(user)
         db.commit()
 
@@ -218,13 +196,13 @@ def test_document_chunk_foreign_key_violation():
 
 
 def test_document_foreign_key_violation():
-    """Verify Document cannot reference nonexistent workspace_id."""
+    """Verify Document cannot reference nonexistent user_id."""
     db_gen = get_db()
     db = next(db_gen)
     try:
         orphan = Document(
             id=uuid.uuid4(),
-            workspace_id=uuid.uuid4(),
+            user_id=uuid.uuid4(),
             filename="orphan.pdf",
             display_name="orphan.pdf",
             original_filename="orphan.pdf",
@@ -250,13 +228,12 @@ def test_document_foreign_key_violation():
 
 
 def test_conversation_foreign_key_violation():
-    """Verify Conversation cannot reference nonexistent workspace_id or user_id."""
+    """Verify Conversation cannot reference nonexistent user_id."""
     db_gen = get_db()
     db = next(db_gen)
     try:
         orphan = Conversation(
             id=uuid.uuid4(),
-            workspace_id=uuid.uuid4(),
             user_id=uuid.uuid4(),
             title="Orphan Conversation",
         )
@@ -293,44 +270,12 @@ def test_message_foreign_key_violation():
             pass
 
 
-def test_workspace_member_duplicate_pk_violation():
-    """Verify duplicate (workspace_id, user_id) violates composite primary key."""
-    db_gen = get_db()
-    db = next(db_gen)
-    user = User(id=uuid.uuid4(), email=f"dup_{uuid.uuid4()}@example.com")
-    ws = Workspace(id=uuid.uuid4(), name=f"WS_{uuid.uuid4().hex[:8]}")
-    db.add(user)
-    db.add(ws)
-    db.commit()
-
-    try:
-        m1 = WorkspaceMember(workspace_id=ws.id, user_id=user.id, role="owner")
-        db.add(m1)
-        db.commit()
-
-        # Expunge m1 from identity map so the conflict is evaluated by the database
-        db.expunge(m1)
-        m2 = WorkspaceMember(workspace_id=ws.id, user_id=user.id, role="member")
-        db.add(m2)
-        with pytest.raises(IntegrityError):
-            db.commit()
-    finally:
-        db.rollback()
-        db.query(WorkspaceMember).filter(WorkspaceMember.workspace_id == ws.id).delete()
-        db.query(Workspace).filter(Workspace.id == ws.id).delete()
-        db.query(User).filter(User.id == user.id).delete()
-        db.commit()
-        try:
-            next(db_gen)
-        except StopIteration:
-            pass
-
-
-def test_v2_2_document_model_fields():
-    """Verify all V2.2 required document columns exist on the Document model."""
+def test_document_model_fields():
+    """Verify all required document columns exist on the Document model."""
     expected_columns = {
         "id",
-        "workspace_id",
+        "user_id",
+        "conversation_id",
         "filename",
         "display_name",
         "original_filename",
@@ -350,13 +295,13 @@ def test_v2_2_document_model_fields():
     assert expected_columns.issubset(actual_columns), f"Missing columns: {expected_columns - actual_columns}"
 
 
-def test_v2_2_document_model_crud_and_status():
-    """Verify Document model persists V2.2 fields and handles status transitions."""
+def test_document_model_crud_and_status():
+    """Verify Document model persists fields and handles status transitions."""
     db_gen = get_db()
     db = next(db_gen)
     unique_suffix = uuid.uuid4().hex[:8]
-    ws = Workspace(id=uuid.uuid4(), name=f"WS_{unique_suffix}")
-    db.add(ws)
+    user = User(id=uuid.uuid4(), email=f"doc_test_{unique_suffix}@example.com")
+    db.add(user)
     db.commit()
 
     doc_id = uuid.uuid4()
@@ -364,7 +309,7 @@ def test_v2_2_document_model_crud_and_status():
         # 1. Create document with UPLOADED status
         doc = Document(
             id=doc_id,
-            workspace_id=ws.id,
+            user_id=user.id,
             filename=f"doc_{unique_suffix}.pdf",
             display_name="Initial Display Name",
             original_filename="Original_Document.pdf",
@@ -424,14 +369,13 @@ def test_v2_2_document_model_crud_and_status():
 
     finally:
         db.rollback()
-        # Clean up any leftover document and workspace
+        # Clean up any leftover document and user
         leftover = db.query(Document).filter(Document.id == doc_id).first()
         if leftover:
             db.delete(leftover)
-        db.query(Workspace).filter(Workspace.id == ws.id).delete()
+        db.query(User).filter(User.id == user.id).delete()
         db.commit()
         try:
             next(db_gen)
         except StopIteration:
             pass
-

@@ -27,11 +27,9 @@ def test_base_metadata():
 
 
 def test_all_v2_1_tables_in_base_metadata():
-    """Verify that SQLAlchemy Base metadata contains all 9 V2.1 tables."""
+    """Verify that SQLAlchemy Base metadata contains all user-centric tables."""
     expected_tables = {
         "users",
-        "workspaces",
-        "workspace_members",
         "documents",
         "document_chunks",
         "conversations",
@@ -54,7 +52,7 @@ def test_alembic_current_revision_is_head():
     heads = script.get_heads()
     assert len(heads) == 1
     head_rev = heads[0]
-    assert head_rev == "8b09e014fdae"
+    assert head_rev == "47830d97fbcc"
 
     with engine.connect() as conn:
         ctx = MigrationContext.configure(conn)

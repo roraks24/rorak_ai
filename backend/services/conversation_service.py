@@ -8,7 +8,6 @@ from backend.core.config import CONTEXT_WINDOW_SIZE, MEMORY_WINDOW_SIZE
 from backend.models.db.conversation import Conversation
 from backend.models.db.message import Message
 from backend.models.db.users import User
-from backend.models.db.workspace import Workspace
 from backend.models.schemas import MessageRole
 from backend.repositories.conversation_repository import ConversationRepository
 from backend.repositories.message_repository import MessageRepository
@@ -17,7 +16,6 @@ from backend.services.exceptions import (
     ConversationNotFound,
     UserNotFound,
     ValidationError,
-    WorkspaceNotFound,
 )
 from backend.services.generator import chat_func
 
@@ -30,7 +28,7 @@ VALID_ROLES = {role.value for role in MessageRole}
 class ConversationService:
     """
     Coordinates conversation lifecycle, message history,
-    validation, workspace isolation, context window policy,
+    validation, context window policy,
     and RAG generation integration.
     """
 
@@ -65,7 +63,7 @@ class ConversationService:
         user_id: UUID | None = None,
     ) -> Conversation:
         """
-        Resolve a conversation, optionally validating workspace and owner context.
+        Resolve a conversation, optionally validating owner context.
         Converts missing/forbidden lookups into clean domain errors.
         """
         conversation = self.repository.get_by_id(conversation_id)
@@ -73,11 +71,6 @@ class ConversationService:
         if conversation is None:
             raise ConversationNotFound(
                 f"Conversation with ID {conversation_id} was not found."
-            )
-
-        if workspace_id is not None and conversation.workspace_id != workspace_id:
-            raise ConversationNotFound(
-                f"Conversation with ID {conversation_id} was not found in workspace {workspace_id}."
             )
 
         if user_id is not None and conversation.user_id != user_id:
@@ -93,29 +86,15 @@ class ConversationService:
 
     def list_workspace_conversations(
         self,
-        workspace_id: UUID,
+        workspace_id: UUID | None = None,
         user_id: UUID | None = None,
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[Conversation], int]:
-        """List conversations inside a workspace with pagination."""
-        self._validate_pagination(page, page_size)
-
-        skip = (page - 1) * page_size
-
-        conversations = self.repository.get_by_workspace_paginated(
-            workspace_id=workspace_id,
-            user_id=user_id,
-            skip=skip,
-            limit=page_size,
-        )
-
-        total = self.repository.count_by_workspace(
-            workspace_id=workspace_id,
-            user_id=user_id,
-        )
-
-        return conversations, total
+        """Backward compatible listing method delegating to list_user_conversations."""
+        if user_id is not None:
+            return self.list_user_conversations(user_id=user_id, page=page, page_size=page_size)
+        return self.list_user_conversations(user_id=workspace_id, page=page, page_size=page_size)
 
     def list_user_conversations(
         self,
@@ -131,14 +110,12 @@ class ConversationService:
 
         conversations = self.repository.get_by_user_paginated(
             user_id=user_id,
-            workspace_id=workspace_id,
             skip=skip,
             limit=page_size,
         )
 
         total = self.repository.count_by_user(
             user_id=user_id,
-            workspace_id=workspace_id,
         )
 
         return conversations, total
@@ -149,13 +126,13 @@ class ConversationService:
 
     def create_conversation(
         self,
-        workspace_id: UUID,
         user_id: UUID,
         title: str,
+        workspace_id: UUID | None = None,
     ) -> Conversation:
         """
-        Create a conversation with owner/workspace context.
-        Converts missing workspace/user into clean domain errors.
+        Create a conversation for an authenticated user.
+        Converts missing user into clean domain errors.
         """
         clean_title = title.strip() if title else ""
 
@@ -169,13 +146,6 @@ class ConversationService:
                 "Conversation title exceeds maximum length of 255 characters."
             )
 
-        # Validate owner and workspace existence to convert missing resources into clean domain errors
-        ws = self.db.get(Workspace, workspace_id)
-        if ws is None:
-            raise WorkspaceNotFound(
-                f"Workspace with ID {workspace_id} was not found."
-            )
-
         user = self.db.get(User, user_id)
         if user is None:
             raise UserNotFound(
@@ -184,7 +154,6 @@ class ConversationService:
 
         conversation = Conversation(
             id=uuid4(),
-            workspace_id=workspace_id,
             user_id=user_id,
             title=clean_title,
         )
@@ -232,12 +201,11 @@ class ConversationService:
             )
 
         try:
-            conversation.title = clean_title
-            conversation.updated_at = datetime.now(timezone.utc)
             self.repository.update_title(
                 conversation=conversation,
                 title=clean_title,
             )
+            conversation.updated_at = datetime.now(timezone.utc)
             self.db.commit()
             self.db.refresh(conversation)
             return conversation
@@ -419,6 +387,7 @@ class ConversationService:
         user_id: UUID | None = None,
         history_limit: int | None = None,
         memory_limit: int | None = None,
+        auto_extract_memories: bool = True,
     ) -> tuple[Message, Message]:
         """
         Step 6 & 7 — Stateful Chat Context Assembly & Context Window Policy:
@@ -459,15 +428,26 @@ class ConversationService:
         # 13. Load deterministic, bounded recent history window (raw history stays intact)
         bounded_history = self.message_repository.get_recent_for_context(
             conversation_id=conversation.id,
-            workspace_id=conversation.workspace_id,
             user_id=conversation.user_id,
             limit=effective_history_limit,
         )
 
-        # 14. Retrieve relevant durable memory for the correct scope (kept distinct from history)
+        # 14. Auto-extract durable memories from user message (e.g. name, role, preferences)
+        if auto_extract_memories:
+            try:
+                from backend.services.memory_extractor import auto_extract_and_save_memories
+                auto_extract_and_save_memories(
+                    db=self.db,
+                    user_content=clean_content,
+                    user_id=conversation.user_id,
+                    memory_repo=self.memory_repository,
+                )
+            except Exception as e:
+                logger.warning("Auto-memory extraction encountered error: %s", e)
+
+        # Retrieve relevant durable memory for the correct scope (includes newly auto-saved memories)
         scoped_memories = self.memory_repository.get_scoped_memories(
             user_id=conversation.user_id,
-            workspace_id=conversation.workspace_id,
             limit=effective_memory_limit,
         )
 
@@ -481,11 +461,13 @@ class ConversationService:
             )
             self.message_repository.create(user_message)
 
-            # 15, 16, 17. Execute grounded RAG, assemble stateful context, generate response
+            # 15, 16, 17. Execute grounded RAG (isolated to conversation), assemble stateful context, generate response
             answer = chat_func(
                 query=clean_content,
                 conversation_history=bounded_history,
                 memory_context=scoped_memories,
+                conversation_id=conversation.id,
+                user_id=conversation.user_id,
             )
 
             if not answer:
@@ -512,7 +494,7 @@ class ConversationService:
             # Update conversation.updated_at
             conversation.updated_at = datetime.now(timezone.utc)
 
-            # Commit atomic transaction boundary
+            # Commit both user and assistant message atomically
             self.db.commit()
 
             self.db.refresh(user_message)

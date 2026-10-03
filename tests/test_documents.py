@@ -1,5 +1,5 @@
 """
-Unit tests for document upload validation and error contracts in V2.2.
+Unit tests for document upload validation and error contracts.
 """
 import io
 import uuid
@@ -11,7 +11,7 @@ from langchain_core.documents import Document as LCDocument
 from backend.main import app
 from backend.core.database import get_db
 from backend.core.security import create_access_token
-from backend.models.db import Workspace, WorkspaceMember, User, Document, DocumentChunk, IngestionJob
+from backend.models.db import User, Document, DocumentChunk, IngestionJob
 
 
 client = TestClient(app)
@@ -30,6 +30,11 @@ def doc_test_auth():
         yield user
     finally:
         client.headers.pop("Authorization", None)
+        doc_ids = [d.id for d in session.query(Document).filter(Document.user_id == user.id).all()]
+        if doc_ids:
+            session.query(DocumentChunk).filter(DocumentChunk.document_id.in_(doc_ids)).delete(synchronize_session=False)
+            session.query(IngestionJob).filter(IngestionJob.document_id.in_(doc_ids)).delete(synchronize_session=False)
+            session.query(Document).filter(Document.user_id == user.id).delete(synchronize_session=False)
         session.query(User).filter(User.id == user.id).delete(synchronize_session=False)
         session.commit()
         try:
@@ -38,61 +43,48 @@ def doc_test_auth():
             pass
 
 
-@pytest.fixture
-def test_workspace(doc_test_auth):
-    gen = get_db()
-    session = next(gen)
-    ws = Workspace(id=uuid.uuid4(), name=f"DocUploadTest_WS_{uuid.uuid4().hex[:8]}")
-    member = WorkspaceMember(workspace_id=ws.id, user_id=doc_test_auth.id, role="owner")
-    session.add(ws)
-    session.add(member)
-    session.commit()
-    try:
-        yield ws
-    finally:
-        # Clean any documents, chunks, jobs for this workspace in reverse FK order
-        doc_ids = [d.id for d in session.query(Document).filter(Document.workspace_id == ws.id).all()]
-        if doc_ids:
-            session.query(DocumentChunk).filter(DocumentChunk.document_id.in_(doc_ids)).delete(synchronize_session=False)
-            session.query(IngestionJob).filter(IngestionJob.document_id.in_(doc_ids)).delete(synchronize_session=False)
-            session.query(Document).filter(Document.workspace_id == ws.id).delete(synchronize_session=False)
-        session.query(WorkspaceMember).filter(WorkspaceMember.workspace_id == ws.id).delete(synchronize_session=False)
-        session.query(Workspace).filter(Workspace.id == ws.id).delete(synchronize_session=False)
-        session.commit()
-        try:
-            next(gen)
-        except StopIteration:
-            pass
-
-
-def test_upload_missing_workspace_id_rejected():
-    """Verify upload without required workspace_id query parameter returns 422."""
+def test_upload_unauthorized():
+    """Verify upload without auth header returns 401."""
+    client.headers.pop("Authorization", None)
     file_bytes = io.BytesIO(b"%PDF-1.4 header")
     response = client.post(
         "/documents/upload",
         files={"file": ("test.pdf", file_bytes, "application/pdf")},
     )
-    assert response.status_code == 422
+    assert response.status_code == 401
 
 
-def test_upload_non_pdf_file_rejected(test_workspace):
-    """Verify non-PDF file upload returns 400 Bad Request with descriptive message."""
-    file_bytes = io.BytesIO(b"Plain text content")
+def test_upload_unsupported_format_rejected():
+    """Verify that truly unsupported file types (e.g. .exe, .jpg) return 400 Bad Request."""
+    file_bytes = io.BytesIO(b"MZ fake exe binary content")
     response = client.post(
-        f"/documents/upload?workspace_id={test_workspace.id}",
-        files={"file": ("test.txt", file_bytes, "text/plain")},
+        "/documents/upload",
+        files={"file": ("malware.exe", file_bytes, "application/octet-stream")},
     )
     assert response.status_code == 400
     data = response.json()
     assert "detail" in data
-    assert "Only PDF files are supported" in data["detail"]
+    assert "Unsupported file type" in data["detail"]
 
 
-def test_upload_empty_pdf_rejected(test_workspace):
+def test_upload_jpg_rejected():
+    """Verify that image files (.jpg) are also rejected with 400."""
+    file_bytes = io.BytesIO(b"\xff\xd8\xff fake jpeg bytes")
+    response = client.post(
+        "/documents/upload",
+        files={"file": ("photo.jpg", file_bytes, "image/jpeg")},
+    )
+    assert response.status_code == 400
+    data = response.json()
+    assert "detail" in data
+    assert "Unsupported file type" in data["detail"]
+
+
+def test_upload_empty_pdf_rejected():
     """Verify empty 0-byte PDF upload returns 422 Unprocessable Entity."""
     empty_bytes = io.BytesIO(b"")
     response = client.post(
-        f"/documents/upload?workspace_id={test_workspace.id}",
+        "/documents/upload",
         files={"file": ("empty.pdf", empty_bytes, "application/pdf")},
     )
     assert response.status_code == 422
@@ -101,7 +93,7 @@ def test_upload_empty_pdf_rejected(test_workspace):
     assert "No readable text content could be extracted" in data["detail"]
 
 
-def test_upload_valid_pdf_success(test_workspace):
+def test_upload_valid_pdf_success():
     """Verify valid PDF upload succeeds and returns 201 Created with DocumentUploadResponse."""
     valid_pdf_bytes = io.BytesIO(b"%PDF-1.4 header dummy content for upload test")
 
@@ -111,7 +103,7 @@ def test_upload_valid_pdf_success(test_workspace):
             LCDocument(page_content="Valid chunk content 2", metadata={"source": "valid.pdf", "page": 2}),
         ]
         response = client.post(
-            f"/documents/upload?workspace_id={test_workspace.id}",
+            "/documents/upload",
             files={"file": ("valid.pdf", valid_pdf_bytes, "application/pdf")},
         )
 

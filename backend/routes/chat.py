@@ -4,12 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from backend.core.auth import get_optional_current_user, verify_workspace_access
+from backend.core.auth import get_optional_current_user
 from backend.core.database import get_db
 from backend.models.db import User
 from backend.models.schemas import APIErrorResponse, ChatRequest, ChatResponse
 from backend.services.conversation_service import ConversationService
-from backend.services.exceptions import ConversationNotFound, ValidationError, WorkspaceNotFound
+from backend.services.exceptions import ConversationNotFound, ValidationError
 from backend.services.generator import chat_func
 
 logger = logging.getLogger(__name__)
@@ -41,7 +41,7 @@ def chat(
     """
     Document-grounded chat endpoint.
     Accepts user question, retrieves relevant context from documents, and generates answer.
-    Enforces user authentication, workspace membership, and conversation ownership.
+    Enforces user authentication and conversation ownership.
     """
     try:
         if request.conversation_id:
@@ -60,13 +60,10 @@ def chat(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail={"error": {"code": "FORBIDDEN", "message": "You do not have access to this conversation."}},
                 )
-            if conv.workspace_id:
-                verify_workspace_access(workspace_id=conv.workspace_id, user_id=current_user.id, db=db)
 
             _, assistant_msg = service.send_user_message_and_reply(
                 conversation_id=request.conversation_id,
                 user_content=request.question,
-                workspace_id=conv.workspace_id,
                 user_id=current_user.id,
             )
             return ChatResponse(
@@ -74,28 +71,16 @@ def chat(
                 conversation_id=request.conversation_id,
             )
 
-        elif request.workspace_id:
-            # Explicitly starting a new conversation thread in a workspace requires membership
-            if not current_user:
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail={"error": {"code": "UNAUTHORIZED", "message": "Authentication required to chat in workspace."}},
-                    headers={"WWW-Authenticate": "Bearer"},
-                )
-
-            verify_workspace_access(workspace_id=request.workspace_id, user_id=current_user.id, db=db)
-
+        elif current_user:
             service = ConversationService(db)
             title = request.question.strip()[:50]
             conv = service.create_conversation(
-                workspace_id=request.workspace_id,
                 user_id=current_user.id,
                 title=title,
             )
             _, assistant_msg = service.send_user_message_and_reply(
                 conversation_id=conv.id,
                 user_content=request.question,
-                workspace_id=request.workspace_id,
                 user_id=current_user.id,
             )
             return ChatResponse(
@@ -108,7 +93,7 @@ def chat(
             answer = chat_func(request.question)
             return ChatResponse(answer=answer, conversation_id=None)
 
-    except (ConversationNotFound, WorkspaceNotFound) as e:
+    except ConversationNotFound as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"error": {"code": e.code, "message": str(e)}},

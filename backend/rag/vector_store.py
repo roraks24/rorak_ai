@@ -87,26 +87,27 @@ def build_vector_store() -> Optional[FAISS]:
 
         return vector_store
 
-    # Find all PDFs recursively.
-    pdf_files = list(
-        DOCUMENTS_DIR.rglob("*.pdf")
-    )
+    # Find all supported documents recursively.
+    supported_patterns = ["*.pdf", "*.docx", "*.txt", "*.md", "*.csv"]
+    doc_files = []
+    for pattern in supported_patterns:
+        doc_files.extend(list(DOCUMENTS_DIR.rglob(pattern)))
 
-    pdf_names = [
+    doc_names = [
         file_path.name
-        for file_path in pdf_files
+        for file_path in doc_files
     ]
 
     logger.info(
-        "Discovered %d PDF file(s) in %s: %s",
-        len(pdf_files),
+        "Discovered %d supported document file(s) in %s: %s",
+        len(doc_files),
         DOCUMENTS_DIR.resolve(),
-        pdf_names,
+        doc_names,
     )
 
-    if not pdf_files:
+    if not doc_files:
         logger.info(
-            "No PDF files found in %s. "
+            "No supported document files found in %s. "
             "Starting with empty vector store.",
             DOCUMENTS_DIR.resolve(),
         )
@@ -134,7 +135,7 @@ def build_vector_store() -> Optional[FAISS]:
 
     documents = []
 
-    for file_path in pdf_files:
+    for file_path in doc_files:
         try:
             chunks = ingest_func(file_path)
 
@@ -158,16 +159,13 @@ def build_vector_store() -> Optional[FAISS]:
 
             # ----------------------------------------------------
             # Build initial vector store.
-            #
-            # IDs are generated here because this rebuild path
-            # predates the document-aware ingestion flow.
-            # Normal V2.2 ingestion supplies stable DocumentChunk
-            # IDs explicitly through add_documents().
+            # Stable UUID IDs prevent collisions with live additions.
             # ----------------------------------------------------
+            from uuid import uuid4
 
             faiss_ids = [
-                str(index)
-                for index in range(len(documents))
+                str(uuid4())
+                for _ in range(len(documents))
             ]
 
             vector_store = FAISS.from_documents(

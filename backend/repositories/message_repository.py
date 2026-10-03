@@ -21,20 +21,16 @@ class MessageRepository:
         user_id: UUID | None = None,
     ) -> Message | None:
         """
-        Get a message by ID, optionally scoped to a conversation, workspace, and user.
+        Get a message by ID, optionally scoped to a conversation and user.
         """
         stmt = select(Message).where(Message.id == message_id)
         if conversation_id is not None:
             stmt = stmt.where(Message.conversation_id == conversation_id)
-        if workspace_id is not None or user_id is not None:
+        if user_id is not None:
             stmt = stmt.join(
                 Conversation,
                 Message.conversation_id == Conversation.id,
-            )
-            if workspace_id is not None:
-                stmt = stmt.where(Conversation.workspace_id == workspace_id)
-            if user_id is not None:
-                stmt = stmt.where(Conversation.user_id == user_id)
+            ).where(Conversation.user_id == user_id)
 
         return self.db.execute(stmt).scalar_one_or_none()
 
@@ -48,15 +44,11 @@ class MessageRepository:
         Return all messages belonging to a conversation, ordered chronologically.
         """
         stmt = select(Message).where(Message.conversation_id == conversation_id)
-        if workspace_id is not None or user_id is not None:
+        if user_id is not None:
             stmt = stmt.join(
                 Conversation,
                 Message.conversation_id == Conversation.id,
-            )
-            if workspace_id is not None:
-                stmt = stmt.where(Conversation.workspace_id == workspace_id)
-            if user_id is not None:
-                stmt = stmt.where(Conversation.user_id == user_id)
+            ).where(Conversation.user_id == user_id)
 
         stmt = stmt.order_by(
             Message.created_at.asc(),
@@ -77,15 +69,11 @@ class MessageRepository:
         Return paginated messages for a conversation, ordered chronologically.
         """
         stmt = select(Message).where(Message.conversation_id == conversation_id)
-        if workspace_id is not None or user_id is not None:
+        if user_id is not None:
             stmt = stmt.join(
                 Conversation,
                 Message.conversation_id == Conversation.id,
-            )
-            if workspace_id is not None:
-                stmt = stmt.where(Conversation.workspace_id == workspace_id)
-            if user_id is not None:
-                stmt = stmt.where(Conversation.user_id == user_id)
+            ).where(Conversation.user_id == user_id)
 
         stmt = (
             stmt.order_by(
@@ -109,15 +97,11 @@ class MessageRepository:
         Return the most recent N messages for LLM context, returned in chronological order.
         """
         stmt = select(Message).where(Message.conversation_id == conversation_id)
-        if workspace_id is not None or user_id is not None:
+        if user_id is not None:
             stmt = stmt.join(
                 Conversation,
                 Message.conversation_id == Conversation.id,
-            )
-            if workspace_id is not None:
-                stmt = stmt.where(Conversation.workspace_id == workspace_id)
-            if user_id is not None:
-                stmt = stmt.where(Conversation.user_id == user_id)
+            ).where(Conversation.user_id == user_id)
 
         stmt = (
             stmt.order_by(
@@ -141,15 +125,11 @@ class MessageRepository:
         stmt = select(func.count(Message.id)).where(
             Message.conversation_id == conversation_id
         )
-        if workspace_id is not None or user_id is not None:
+        if user_id is not None:
             stmt = stmt.join(
                 Conversation,
                 Message.conversation_id == Conversation.id,
-            )
-            if workspace_id is not None:
-                stmt = stmt.where(Conversation.workspace_id == workspace_id)
-            if user_id is not None:
-                stmt = stmt.where(Conversation.user_id == user_id)
+            ).where(Conversation.user_id == user_id)
 
         return self.db.execute(stmt).scalar_one()
 
@@ -176,7 +156,6 @@ class MessageRepository:
             msg = self.get_by_id(
                 message_id=message,
                 conversation_id=conversation_id,
-                workspace_id=workspace_id,
                 user_id=user_id,
             )
             if msg is None:
