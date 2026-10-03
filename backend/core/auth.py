@@ -1,10 +1,10 @@
 """
 Authentication and Authorization dependencies for FastAPI.
 
-Rorak AI V2.6: Authentication & Multi-User Isolation.
+Provides JWT authentication and multi-user isolation.
 """
 import logging
-from typing import List, Optional
+from typing import Optional
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, status
@@ -86,15 +86,3 @@ def get_optional_current_user(
     if not credentials or not credentials.credentials:
         return None
     return get_current_user(credentials=credentials, db=db)
-
-
-def verify_workspace_access(
-    workspace_id: UUID,
-    user_id: UUID,
-    db: Session,
-    required_roles: Optional[List[str]] = None,
-):
-    """
-    Deprecated: Workspace isolation has been removed.
-    """
-    return None

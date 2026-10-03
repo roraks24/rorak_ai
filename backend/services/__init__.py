@@ -6,12 +6,10 @@ from backend.services.exceptions import (
     NotFound,
     DocumentNotFound,
     ConversationNotFound,
-    WorkspaceNotFound,
     UserNotFound,
     MemoryNotFound,
     ValidationError,
     Conflict,
-    WorkspaceAlreadyExists,
     IngestionError,
 )
 
@@ -23,11 +21,9 @@ __all__ = [
     "NotFound",
     "DocumentNotFound",
     "ConversationNotFound",
-    "WorkspaceNotFound",
     "UserNotFound",
     "MemoryNotFound",
     "ValidationError",
     "Conflict",
-    "WorkspaceAlreadyExists",
     "IngestionError",
 ]

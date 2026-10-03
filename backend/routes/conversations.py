@@ -80,7 +80,6 @@ def create_conversation(
 )
 def get_conversation(
     conversation_id: UUID,
-    workspace_id: UUID | None = Query(default=None, description="Optional workspace ID scoping (ignored)"),
     user_id: UUID | None = Query(default=None, description="Optional user ID scoping"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -115,7 +114,6 @@ def get_conversation(
 def rename_conversation(
     conversation_id: UUID,
     payload: RenameConversationRequest,
-    workspace_id: UUID | None = Query(default=None, description="Optional workspace ID scoping (ignored)"),
     user_id: UUID | None = Query(default=None, description="Optional user ID scoping"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -157,7 +155,6 @@ def rename_conversation(
     },
 )
 def list_conversations(
-    workspace_id: UUID | None = Query(default=None, description="Deprecated: Filter conversations by workspace ID"),
     user_id: UUID | None = Query(default=None, description="Optional user ID scoping"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
@@ -211,7 +208,6 @@ def list_conversations(
 )
 def delete_conversation(
     conversation_id: UUID,
-    workspace_id: UUID | None = Query(default=None, description="Optional workspace ID scoping (ignored)"),
     user_id: UUID | None = Query(default=None, description="Optional user ID scoping"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -251,7 +247,6 @@ def delete_conversation(
 def create_message(
     conversation_id: UUID,
     payload: CreateMessageRequest,
-    workspace_id: UUID | None = Query(default=None, description="Optional workspace ID scoping (ignored)"),
     user_id: UUID | None = Query(default=None, description="Optional user ID scoping"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -296,7 +291,6 @@ def create_message(
 )
 def get_messages(
     conversation_id: UUID,
-    workspace_id: UUID | None = Query(default=None, description="Optional workspace ID scoping (ignored)"),
     user_id: UUID | None = Query(default=None, description="Optional user ID scoping"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=100),

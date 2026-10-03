@@ -95,8 +95,6 @@ def test_alembic_upgrade_downgrade_cycle_safe():
 
     expected_create_tables = {
         "CREATE TABLE users",
-        "CREATE TABLE workspaces",
-        "CREATE TABLE workspace_members",
         "CREATE TABLE documents",
         "CREATE TABLE document_chunks",
         "CREATE TABLE conversations",
@@ -119,8 +117,6 @@ def test_alembic_upgrade_downgrade_cycle_safe():
 
     expected_drop_tables = {
         "DROP TABLE users",
-        "DROP TABLE workspaces",
-        "DROP TABLE workspace_members",
         "DROP TABLE documents",
         "DROP TABLE document_chunks",
         "DROP TABLE conversations",

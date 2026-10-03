@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from backend import __version__
 from backend.core.config import LOG_LEVEL
 from backend.core.logging import setup_logging
 from backend.routes import (
@@ -19,7 +20,6 @@ from backend.routes import (
     documents,
     health,
     memories,
-    users,
 )
 from backend.rag import vector_store as vector_store_module
 
@@ -58,9 +58,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         self.requests = defaultdict(list)
 
-        RateLimitMiddleware._instances.append(
-            self
-        )
+        RateLimitMiddleware._instances.append(self)
 
     @classmethod
     def reset(cls):
@@ -73,16 +71,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         for instance in cls._instances:
             instance.requests.clear()
 
-    async def dispatch(
-        self,
-        request: Request,
-        call_next,
-    ):
-        client_ip = (
-            request.client.host
-            if request.client
-            else "unknown"
-        )
+    async def dispatch(self, request: Request, call_next):
+        client_ip = request.client.host if request.client else "unknown"
 
         # Exempt health and readiness probes from rate limiting
         path = request.url.path.rstrip("/")
@@ -105,13 +95,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # Enforce request limit.
         # --------------------------------------------------------
 
-        if (
-            len(self.requests[client_ip])
-            >= self.max_requests
-        ):
+        if len(self.requests[client_ip]) >= self.max_requests:
             logger.warning(
-                "Rate limit exceeded for IP: %s "
-                "(%d requests in %ds)",
+                "Rate limit exceeded for IP: %s (%d requests in %ds)",
                 client_ip,
                 len(self.requests[client_ip]),
                 self.window_seconds,
@@ -128,20 +114,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                         ),
                     }
                 },
-                headers={
-                    "Retry-After": str(
-                        self.window_seconds
-                    )
-                },
+                headers={"Retry-After": str(self.window_seconds)},
             )
 
-        self.requests[client_ip].append(
-            now
-        )
+        self.requests[client_ip].append(now)
 
-        response = await call_next(
-            request
-        )
+        response = await call_next(request)
 
         return response
 
@@ -155,27 +133,15 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
     Log request execution duration and status codes.
     """
 
-    async def dispatch(
-        self,
-        request: Request,
-        call_next,
-    ):
+    async def dispatch(self, request: Request, call_next):
         start_time = time.perf_counter()
 
-        response = await call_next(
-            request
-        )
+        response = await call_next(request)
 
-        duration_ms = (
-            time.perf_counter()
-            - start_time
-        ) * 1000
+        duration_ms = (time.perf_counter() - start_time) * 1000
 
         # Avoid log clutter for health polling.
-        if request.url.path not in (
-            "/health",
-            "/health/",
-        ):
+        if request.url.path not in ("/health", "/health/"):
             logger.info(
                 "%s %s -> %d (%.2f ms)",
                 request.method,
@@ -192,56 +158,34 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 # ============================================================
 
 @asynccontextmanager
-async def lifespan(
-    app: FastAPI,
-):
+async def lifespan(app: FastAPI):
     start_time = time.perf_counter()
 
     logger.info("=" * 60)
-    logger.info(
-        "Rorak V2.2 Backend starting up..."
-    )
+    logger.info("Rorak AI backend v%s starting up...", __version__)
     logger.info("=" * 60)
 
     # --------------------------------------------------------
     # Vector store runtime status.
     # --------------------------------------------------------
 
-    stats = (
-        vector_store_module
-        .get_vector_store_stats()
-    )
+    stats = vector_store_module.get_vector_store_stats()
 
     logger.info(
-        "Vector store status: %d PDF file(s) found, "
-        "%d chunks indexed.",
-        stats.get(
-            "files_found",
-            0,
-        ),
-        stats.get(
-            "chunks_indexed",
-            0,
-        ),
+        "Vector store status: %d PDF file(s) found, %d chunks indexed.",
+        stats.get("files_found", 0),
+        stats.get("chunks_indexed", 0),
     )
 
-    startup_duration = (
-        time.perf_counter()
-        - start_time
-    )
+    startup_duration = time.perf_counter() - start_time
 
-    logger.info(
-        "Rorak application ready in %.2f seconds.",
-        startup_duration,
-    )
+    logger.info("Rorak application ready in %.2f seconds.", startup_duration)
 
     logger.info("=" * 60)
 
     yield
 
-    logger.info(
-        "Rorak Backend shutting down..."
-    )
+    logger.info("Rorak Backend shutting down...")
 
 
 # ============================================================
@@ -249,12 +193,12 @@ async def lifespan(
 # ============================================================
 
 app = FastAPI(
-    title="Rorak",
+    title="Rorak AI",
     description=(
-        "Rorak AI V2.2 - Document RAG and "
-        "Generative AI Assistant"
+        "Document-grounded AI assistant with multi-turn conversations, "
+        "long-term memory, and multi-format RAG."
     ),
-    version="2.2.0",
+    version=__version__,
     lifespan=lifespan,
 )
 
@@ -285,11 +229,7 @@ origins = [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_origin_regex=(
-        r"^https?://"
-        r"([a-zA-Z0-9-]+\.)?"
-        r"rorak\.tech$"
-    ),
+    allow_origin_regex=r"^https?://([a-zA-Z0-9-]+\.)?rorak\.tech$",
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -306,9 +246,7 @@ app.add_middleware(
     window_seconds=60,
 )
 
-app.add_middleware(
-    RequestLoggingMiddleware
-)
+app.add_middleware(RequestLoggingMiddleware)
 
 
 # ============================================================
@@ -319,7 +257,7 @@ app.add_middleware(
 def root():
     return {
         "name": "Rorak",
-        "version": "2.2.0",
+        "version": __version__,
         "status": "running",
     }
 
@@ -328,30 +266,9 @@ def root():
 # ROUTES
 # ============================================================
 
-app.include_router(
-    auth.router
-)
-
-app.include_router(
-    health.router
-)
-
-app.include_router(
-    chat.router
-)
-
-app.include_router(
-    documents.router
-)
-
-app.include_router(
-    conversations.router
-)
-
-app.include_router(
-    memories.router
-)
-
-app.include_router(
-    users.router
-)
+app.include_router(auth.router)
+app.include_router(health.router)
+app.include_router(chat.router)
+app.include_router(documents.router)
+app.include_router(conversations.router)
+app.include_router(memories.router)

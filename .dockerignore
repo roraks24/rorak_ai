@@ -1,10 +1,26 @@
-.venv
 .git
 .github
+.venv
+venv
 .pytest_cache
-__pycache__
-*.pyc
-tests
-frontend
+.firebase
+**/__pycache__
+**/*.pyc
+
 .env
 .env.*
+!.env.example
+
+# Local uploads and vector index must never be baked into an image
+documents
+
+# Not needed by the API image
+frontend
+tests
+docs
+*.md
+firebase.json
+.firebaserc
+render.yaml
+docker-compose.yml
+Makefile

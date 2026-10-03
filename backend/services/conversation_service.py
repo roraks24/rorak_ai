@@ -59,7 +59,6 @@ class ConversationService:
     def get_conversation(
         self,
         conversation_id: UUID,
-        workspace_id: UUID | None = None,
         user_id: UUID | None = None,
     ) -> Conversation:
         """
@@ -84,22 +83,9 @@ class ConversationService:
     # Conversation listing
     # ------------------------------------------------------------------
 
-    def list_workspace_conversations(
-        self,
-        workspace_id: UUID | None = None,
-        user_id: UUID | None = None,
-        page: int = 1,
-        page_size: int = 20,
-    ) -> tuple[list[Conversation], int]:
-        """Backward compatible listing method delegating to list_user_conversations."""
-        if user_id is not None:
-            return self.list_user_conversations(user_id=user_id, page=page, page_size=page_size)
-        return self.list_user_conversations(user_id=workspace_id, page=page, page_size=page_size)
-
     def list_user_conversations(
         self,
         user_id: UUID,
-        workspace_id: UUID | None = None,
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[Conversation], int]:
@@ -128,7 +114,6 @@ class ConversationService:
         self,
         user_id: UUID,
         title: str,
-        workspace_id: UUID | None = None,
     ) -> Conversation:
         """
         Create a conversation for an authenticated user.
@@ -175,7 +160,6 @@ class ConversationService:
         self,
         conversation_id: UUID,
         title: str,
-        workspace_id: UUID | None = None,
         user_id: UUID | None = None,
     ) -> Conversation:
         """
@@ -184,7 +168,6 @@ class ConversationService:
         """
         conversation = self.get_conversation(
             conversation_id=conversation_id,
-            workspace_id=workspace_id,
             user_id=user_id,
         )
 
@@ -220,7 +203,6 @@ class ConversationService:
     def delete_conversation(
         self,
         conversation_id: UUID,
-        workspace_id: UUID | None = None,
         user_id: UUID | None = None,
     ) -> None:
         """
@@ -228,7 +210,6 @@ class ConversationService:
         """
         conversation = self.get_conversation(
             conversation_id=conversation_id,
-            workspace_id=workspace_id,
             user_id=user_id,
         )
 
@@ -248,7 +229,6 @@ class ConversationService:
     def get_messages(
         self,
         conversation_id: UUID,
-        workspace_id: UUID | None = None,
         user_id: UUID | None = None,
         page: int = 1,
         page_size: int = 50,
@@ -261,7 +241,6 @@ class ConversationService:
         # Resolve and validate the conversation first
         self.get_conversation(
             conversation_id=conversation_id,
-            workspace_id=workspace_id,
             user_id=user_id,
         )
 
@@ -269,7 +248,6 @@ class ConversationService:
 
         messages = self.message_repository.get_by_conversation_paginated(
             conversation_id=conversation_id,
-            workspace_id=workspace_id,
             user_id=user_id,
             skip=skip,
             limit=page_size,
@@ -277,7 +255,6 @@ class ConversationService:
 
         total = self.message_repository.count_by_conversation(
             conversation_id=conversation_id,
-            workspace_id=workspace_id,
             user_id=user_id,
         )
 
@@ -292,7 +269,6 @@ class ConversationService:
         conversation_id: UUID,
         role: str | MessageRole,
         content: str,
-        workspace_id: UUID | None = None,
         user_id: UUID | None = None,
     ) -> Message:
         """
@@ -301,7 +277,6 @@ class ConversationService:
         """
         conversation = self.get_conversation(
             conversation_id=conversation_id,
-            workspace_id=workspace_id,
             user_id=user_id,
         )
 
@@ -352,7 +327,6 @@ class ConversationService:
     def get_recent_messages_for_context(
         self,
         conversation_id: UUID,
-        workspace_id: UUID | None = None,
         user_id: UUID | None = None,
         limit: int = 20,
     ) -> list[Message]:
@@ -364,13 +338,11 @@ class ConversationService:
 
         self.get_conversation(
             conversation_id=conversation_id,
-            workspace_id=workspace_id,
             user_id=user_id,
         )
 
         return self.message_repository.get_recent_for_context(
             conversation_id=conversation_id,
-            workspace_id=workspace_id,
             user_id=user_id,
             limit=limit,
         )
@@ -383,7 +355,6 @@ class ConversationService:
         self,
         conversation_id: UUID,
         user_content: str,
-        workspace_id: UUID | None = None,
         user_id: UUID | None = None,
         history_limit: int | None = None,
         memory_limit: int | None = None,
@@ -401,7 +372,6 @@ class ConversationService:
         # 11. Identify the conversation from the request
         conversation = self.get_conversation(
             conversation_id=conversation_id,
-            workspace_id=workspace_id,
             user_id=user_id,
         )
 

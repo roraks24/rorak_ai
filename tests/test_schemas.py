@@ -3,6 +3,7 @@ import uuid
 import pytest
 from pydantic import ValidationError as PydanticValidationError
 
+from backend import __version__
 from backend.models.schemas import (
     DocumentStatus,
     IngestionStatus,
@@ -14,9 +15,6 @@ from backend.models.schemas import (
     DocumentUploadResponse,
     HealthResponse,
     ReadyResponse,
-    WorkspaceResponse,
-    WorkspaceListResponse,
-    WorkspaceMemberResponse,
     DocumentResponse,
     DocumentListResponse,
     ConversationResponse,
@@ -24,10 +22,8 @@ from backend.models.schemas import (
     MessageResponse,
     MessageListResponse,
     IngestionJobResponse,
-    CreateWorkspaceRequest,
     CreateConversationRequest,
     CreateMessageRequest,
-    AddMemberRequest,
     RenameDocumentRequest,
     CreateMemoryRequest,
     UpdateMemoryRequest,
@@ -103,30 +99,7 @@ def test_health_response_defaults():
     """Verify HealthResponse has status and version."""
     health = HealthResponse(status="healthy")
     assert health.status == "healthy"
-    assert health.version == "2.1.0"
-
-
-def test_workspace_schemas():
-    """Verify workspace request and response contracts."""
-    req = CreateWorkspaceRequest(name="Alpha Workspace")
-    assert req.name == "Alpha Workspace"
-
-    now = datetime.now(timezone.utc)
-    ws_id = uuid.uuid4()
-    resp = WorkspaceResponse(
-        id=ws_id,
-        name="Alpha Workspace",
-        created_at=now,
-        updated_at=now,
-    )
-    assert resp.id == ws_id
-    assert resp.name == "Alpha Workspace"
-
-    list_resp = WorkspaceListResponse(
-        workspaces=[resp],
-        pagination=Pagination(page=1, page_size=20, total=1, total_pages=1),
-    )
-    assert len(list_resp.workspaces) == 1
+    assert health.version == __version__
 
 
 def test_document_schemas():
@@ -134,12 +107,10 @@ def test_document_schemas():
     now = datetime.now(timezone.utc)
     doc_id = uuid.uuid4()
     user_id = uuid.uuid4()
-    ws_id = uuid.uuid4()
 
     doc = DocumentResponse(
         id=doc_id,
         user_id=user_id,
-        workspace_id=ws_id,
         filename="report.pdf",
         original_filename="Q3_Report.pdf",
         display_name="Q3 Report",
@@ -171,12 +142,10 @@ def test_conversation_and_message_schemas():
     """Verify conversation and message schemas."""
     now = datetime.now(timezone.utc)
     conv_id = uuid.uuid4()
-    ws_id = uuid.uuid4()
     user_id = uuid.uuid4()
 
     conv = ConversationResponse(
         id=conv_id,
-        workspace_id=ws_id,
         user_id=user_id,
         title="Project Discussion",
         created_at=now,
@@ -243,21 +212,12 @@ def test_document_upload_response_schema():
 
 
 def test_request_validation_models():
-    """Verify validation constraints on CreateWorkspace, CreateConversation, CreateMessage, and AddMember."""
-    # CreateWorkspaceRequest: empty or > 50 chars rejected
-    with pytest.raises(PydanticValidationError):
-        CreateWorkspaceRequest(name="")
-    with pytest.raises(PydanticValidationError):
-        CreateWorkspaceRequest(name="a" * 51)
-    valid_ws = CreateWorkspaceRequest(name="Engineering")
-    assert valid_ws.name == "Engineering"
-
-    # CreateConversationRequest: empty title rejected, missing user_id rejected
-    ws_id = uuid.uuid4()
+    """Verify validation constraints on CreateConversation and CreateMessage."""
+    # CreateConversationRequest: empty title rejected
     u_id = uuid.uuid4()
     with pytest.raises(PydanticValidationError):
-        CreateConversationRequest(workspace_id=ws_id, user_id=u_id, title="")
-    valid_conv = CreateConversationRequest(workspace_id=ws_id, user_id=u_id, title="Sprint Plan")
+        CreateConversationRequest(user_id=u_id, title="")
+    valid_conv = CreateConversationRequest(user_id=u_id, title="Sprint Plan")
     assert valid_conv.title == "Sprint Plan"
 
     # CreateMessageRequest: empty content or invalid role rejected
@@ -267,13 +227,6 @@ def test_request_validation_models():
         CreateMessageRequest(role="invalid_role", content="Hello")
     valid_msg = CreateMessageRequest(role="user", content="Hello world")
     assert valid_msg.role == MessageRole.USER
-
-    # AddMemberRequest: missing or invalid user_id rejected
-    with pytest.raises(PydanticValidationError):
-        AddMemberRequest(user_id="not-a-uuid", role="admin")
-    valid_member = AddMemberRequest(user_id=u_id, role="admin")
-    assert valid_member.role == "admin"
-    assert valid_member.user_id == u_id
 
 
 def test_api_error_response_schema():
@@ -317,13 +270,11 @@ def test_document_upload_response_schema():
     now = datetime.now(timezone.utc)
     doc_id = uuid.uuid4()
     user_id = uuid.uuid4()
-    ws_id = uuid.uuid4()
     job_id = uuid.uuid4()
 
     doc_resp = DocumentResponse(
         id=doc_id,
         user_id=user_id,
-        workspace_id=ws_id,
         filename="notes.pdf",
         original_filename="My_Notes.pdf",
         display_name="My Notes",
@@ -366,12 +317,10 @@ def test_document_response_orm_serialization():
     now = datetime.now(timezone.utc)
     doc_id = uuid.uuid4()
     user_id = uuid.uuid4()
-    ws_id = uuid.uuid4()
 
     orm_doc = Mock()
     orm_doc.id = doc_id
     orm_doc.user_id = user_id
-    orm_doc.workspace_id = ws_id
     orm_doc.filename = "report.pdf"
     orm_doc.original_filename = "Quarterly_Report.pdf"
     orm_doc.display_name = "Quarterly Report"
@@ -388,7 +337,6 @@ def test_document_response_orm_serialization():
     resp = DocumentResponse.model_validate(orm_doc)
     assert resp.id == doc_id
     assert resp.user_id == user_id
-    assert resp.workspace_id == ws_id
     assert resp.display_name == "Quarterly Report"
     assert resp.original_filename == "Quarterly_Report.pdf"
     assert resp.mime_type == "application/pdf"
@@ -400,19 +348,16 @@ def test_document_response_orm_serialization():
 def test_memory_schemas():
     """Verify validation and serialization for Memory schemas."""
     user_id = uuid.uuid4()
-    ws_id = uuid.uuid4()
     mem_id = uuid.uuid4()
     now = datetime.now(timezone.utc)
 
     # 1. CreateMemoryRequest valid
     req = CreateMemoryRequest(
         user_id=user_id,
-        workspace_id=ws_id,
         content="User prefers Python over JavaScript",
         memory_type="preference",
     )
     assert req.user_id == user_id
-    assert req.workspace_id == ws_id
     assert req.content == "User prefers Python over JavaScript"
     assert req.memory_type == "preference"
 
@@ -421,7 +366,6 @@ def test_memory_schemas():
         user_id=user_id,
         content="Global user fact",
     )
-    assert req_default.workspace_id is None
     assert req_default.memory_type == "preference"
 
     # Empty content rejected
@@ -443,7 +387,6 @@ def test_memory_schemas():
     orm_mem = Mock()
     orm_mem.id = mem_id
     orm_mem.user_id = user_id
-    orm_mem.workspace_id = ws_id
     orm_mem.content = "User preference: succinct answers"
     orm_mem.memory_type = "preference"
     orm_mem.created_at = now
@@ -452,7 +395,6 @@ def test_memory_schemas():
     mem_resp = MemoryResponse.model_validate(orm_mem)
     assert mem_resp.id == mem_id
     assert mem_resp.user_id == user_id
-    assert mem_resp.workspace_id == ws_id
     assert mem_resp.content == "User preference: succinct answers"
     assert mem_resp.memory_type == "preference"
 

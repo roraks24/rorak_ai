@@ -65,10 +65,6 @@ router = APIRouter(
     },
 )
 async def upload_document(
-    workspace_id: Optional[UUID] = Query(
-        None,
-        description="Deprecated: Workspaces are no longer used",
-    ),
     conversation_id: Optional[UUID] = Query(
         None,
         description="Optional conversation/chat that will own the document",
@@ -227,10 +223,6 @@ async def upload_document(
     },
 )
 def get_documents(
-    workspace_id: Optional[UUID] = Query(
-        default=None,
-        description="Deprecated: workspace ID is ignored",
-    ),
     conversation_id: Optional[UUID] = Query(
         default=None,
         description="Optional conversation whose documents should be listed",

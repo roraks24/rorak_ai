@@ -53,7 +53,7 @@ def stateful_prompt_func(
     """
     Construct a hardened prompt assembling:
     - System instructions (Rorak identity, safety, markdown formatting)
-    - Durable memory context (user/workspace preferences and facts)
+    - Durable memory context (user preferences and facts)
     - Bounded conversation history window
     - Retrieved document evidence (when grounded)
     - Current user question

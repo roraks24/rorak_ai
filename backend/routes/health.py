@@ -3,6 +3,7 @@ from typing import Optional
 from fastapi import APIRouter
 from sqlalchemy import text
 
+from backend import __version__
 from backend.core.database import engine
 from backend.models.schemas import HealthResponse, ReadyResponse
 from backend.rag import vector_store as vector_store_module
@@ -23,7 +24,7 @@ def health_check():
     Liveness probe: returns immediate 200 OK if service process is alive.
     Does not perform AI inference.
     """
-    return HealthResponse(status="healthy", version="2.1.0")
+    return HealthResponse(status="healthy", version=__version__)
 
 
 @router.get("/ready/", response_model=ReadyResponse)

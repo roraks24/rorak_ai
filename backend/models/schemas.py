@@ -5,6 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from backend import __version__
+
 
 # ============================================================
 # ENUMS
@@ -87,10 +89,6 @@ class ChatRequest(BaseModel):
         default=None,
         description="Optional existing conversation thread ID to continue",
     )
-    workspace_id: Optional[UUID] = Field(
-        default=None,
-        description="Optional workspace ID for context and scoping",
-    )
     user_id: Optional[UUID] = Field(
         default=None,
         description="Optional user ID for scoping and memory",
@@ -136,7 +134,7 @@ class APIErrorResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str
-    version: str = "2.1.0"
+    version: str = __version__
 
 
 class ReadyResponse(BaseModel):
@@ -152,51 +150,6 @@ class ReadyResponse(BaseModel):
         description="Number of indexed chunks",
     )
     details: Optional[dict] = None
-
-
-# ============================================================
-# WORKSPACE SCHEMAS
-# ============================================================
-
-class CreateWorkspaceRequest(BaseModel):
-    name: str = Field(
-        ...,
-        min_length=1,
-        max_length=50,
-        description="Unique workspace name",
-    )
-    owner_id: Optional[UUID] = None
-
-
-class WorkspaceResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: UUID
-    name: str
-    created_at: datetime
-    updated_at: datetime
-
-
-class WorkspaceListResponse(BaseModel):
-    workspaces: list[WorkspaceResponse]
-    pagination: Pagination
-
-
-class AddMemberRequest(BaseModel):
-    user_id: UUID
-    role: str = Field(
-        default="member",
-        description="Role in workspace: owner, admin, member, or viewer",
-    )
-
-
-class WorkspaceMemberResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    workspace_id: UUID
-    user_id: UUID
-    role: str
-    created_at: datetime
 
 
 # ============================================================
@@ -217,7 +170,6 @@ class DocumentResponse(BaseModel):
 
     id: UUID
     user_id: UUID
-    workspace_id: Optional[UUID] = None
     conversation_id: Optional[UUID] = None
 
     @field_validator("conversation_id", mode="before")
@@ -257,10 +209,6 @@ class DocumentListResponse(BaseModel):
 # ============================================================
 
 class CreateConversationRequest(BaseModel):
-    workspace_id: Optional[UUID] = Field(
-        default=None,
-        description="Deprecated: Workspaces are no longer used",
-    )
     user_id: Optional[UUID] = Field(
         default=None,
         description="Deprecated: Identity is resolved securely from JWT token",
@@ -287,7 +235,6 @@ class ConversationResponse(BaseModel):
 
     id: UUID
     user_id: UUID
-    workspace_id: Optional[UUID] = None
 
     title: str
 
@@ -359,7 +306,6 @@ class CreateMemoryRequest(BaseModel):
         default=None,
         description="Deprecated: Identity is resolved securely from JWT token",
     )
-    workspace_id: Optional[UUID] = None
     content: str = Field(
         ...,
         min_length=1,
@@ -394,7 +340,6 @@ class MemoryResponse(BaseModel):
 
     id: UUID
     user_id: UUID
-    workspace_id: Optional[UUID] = None
 
     content: str
     memory_type: str
@@ -409,7 +354,7 @@ class MemoryListResponse(BaseModel):
 
 
 # ============================================================
-# USER & AUTHENTICATION SCHEMAS (V2.6)
+# USER & AUTHENTICATION SCHEMAS
 # ============================================================
 
 class UserResponse(BaseModel):

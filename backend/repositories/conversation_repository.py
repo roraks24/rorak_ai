@@ -17,7 +17,6 @@ class ConversationRepository:
         self,
         conversation_id: UUID,
         user_id: UUID | None = None,
-        workspace_id: UUID | None = None,
     ) -> Conversation | None:
         """
         Get a conversation by ID, optionally scoped to a user.
@@ -31,7 +30,6 @@ class ConversationRepository:
     def get_by_user(
         self,
         user_id: UUID,
-        workspace_id: UUID | None = None,
     ) -> list[Conversation]:
         """
         Return conversations for a user, newest first.
@@ -52,7 +50,6 @@ class ConversationRepository:
         user_id: UUID,
         skip: int = 0,
         limit: int = 20,
-        workspace_id: UUID | None = None,
     ) -> list[Conversation]:
         """
         Return a paginated list of conversations for a user.
@@ -73,7 +70,6 @@ class ConversationRepository:
     def count_by_user(
         self,
         user_id: UUID,
-        workspace_id: UUID | None = None,
     ) -> int:
         """
         Count conversations for a user.
@@ -82,52 +78,6 @@ class ConversationRepository:
             Conversation.user_id == user_id
         )
 
-        return self.db.execute(stmt).scalar_one()
-
-    def get_by_workspace(
-        self,
-        workspace_id: UUID,
-        user_id: UUID | None = None,
-    ) -> list[Conversation]:
-        """Backward-compatible fallback mapping to user conversations."""
-        if user_id is not None:
-            return self.get_by_user(user_id=user_id)
-        stmt = select(Conversation).order_by(
-            Conversation.created_at.desc(),
-            Conversation.id.desc(),
-        )
-        return list(self.db.execute(stmt).scalars().all())
-
-    def get_by_workspace_paginated(
-        self,
-        workspace_id: UUID,
-        user_id: UUID | None = None,
-        skip: int = 0,
-        limit: int = 20,
-    ) -> list[Conversation]:
-        """Backward-compatible fallback mapping to user conversations."""
-        if user_id is not None:
-            return self.get_by_user_paginated(user_id=user_id, skip=skip, limit=limit)
-        stmt = (
-            select(Conversation)
-            .order_by(
-                Conversation.created_at.desc(),
-                Conversation.id.desc(),
-            )
-            .offset(skip)
-            .limit(limit)
-        )
-        return list(self.db.execute(stmt).scalars().all())
-
-    def count_by_workspace(
-        self,
-        workspace_id: UUID,
-        user_id: UUID | None = None,
-    ) -> int:
-        """Backward-compatible fallback counting user conversations."""
-        if user_id is not None:
-            return self.count_by_user(user_id=user_id)
-        stmt = select(func.count(Conversation.id))
         return self.db.execute(stmt).scalar_one()
 
     def create(
@@ -152,7 +102,6 @@ class ConversationRepository:
     def delete(
         self,
         conversation: Conversation | UUID,
-        workspace_id: UUID | None = None,
         user_id: UUID | None = None,
     ) -> bool:
         """

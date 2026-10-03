@@ -75,7 +75,6 @@ def create_memory(
 )
 def list_memories(
     user_id: UUID | None = Query(default=None, description="Optional user ID scoping"),
-    workspace_id: UUID | None = Query(default=None, description="Deprecated"),
     memory_type: str | None = Query(default=None, description="Optional memory type filter"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),

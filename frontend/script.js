@@ -1,17 +1,14 @@
 /* ============================================================
-   Rorak V2.2 — Frontend Application Logic
+   Rorak AI — Frontend Application
    ============================================================
-   Consumes Rorak Backend API:
-     GET    /health/
-     GET    /ready/
-     GET    /workspaces/?page=1&page_size=20
-     POST   /workspaces/
-     GET    /documents/?workspace_id=<uuid>&page=1&page_size=20
-     GET    /documents/{document_id}
-     POST   /documents/upload?workspace_id=<uuid>
-     PATCH  /documents/{document_id}
-     DELETE /documents/{document_id}
+   Vanilla JS single-page client for the Rorak AI REST API.
+   Endpoints consumed:
+     POST   /auth/register | /auth/login     GET /auth/me
+     GET    /health/  |  /ready/
      POST   /chat/
+     CRUD   /conversations/  (+ /{id}/messages)
+     CRUD   /documents/      (uploads are scoped to a conversation)
+     CRUD   /memories/
    ============================================================ */
 
 (function () {
@@ -27,14 +24,10 @@
     // ── Greetings ──
     var GREETINGS = [
         "Ready when you are.",
-        "Hi Beautiful!",
-        "Hi Gorgeous!",
-        "Hi Sunshine!",
-        "Hi Brilliant!",
-        "Hi Superstar!",
-        "Hi Champion!",
-        "Hi Genius!",
-        "Hi Rockstar!",
+        "What can I help you with?",
+        "Ask me anything.",
+        "What's on your mind today?",
+        "Let's dig into your documents.",
         "Ready to explore your documents."
     ];
 
@@ -43,13 +36,12 @@
     var uploadedFileName = null;
     var activeDocumentId = null;
     var isLoading = false;
-    var currentWorkspaceId = null;
     var currentUserId = null;
     var currentUser = null;
     var activeConversationId = null;
     var activeView = "chat"; // "chat" | "docs" | "memory"
 
-    // Authentication & Storage Keys (V2.6)
+    // Authentication & Storage Keys
     var RORAK_TOKEN_KEY = "rorak_access_token";
     var RORAK_USER_KEY = "rorak_user";
 
@@ -64,14 +56,14 @@
         pendingActionDoc: null
     };
 
-    // Conversation state (Step 10)
+    // Conversation state
     var conversationLibrary = {
         conversations: [],
         isLoading: false,
         pendingActionConv: null
     };
 
-    // Memory state (Step 11)
+    // Memory state
     var memoryLibrary = {
         memories: [],
         page: 1,
@@ -115,7 +107,7 @@
     var drawerFilesCount = document.getElementById("drawerFilesCount");
     var chatFilesCloseBtn = document.getElementById("chatFilesCloseBtn");
 
-    // Conversations DOM (Step 10)
+    // Conversations DOM
     var btnNewChat = document.getElementById("btnNewChat");
     var convListContainer = document.getElementById("convListContainer");
     var convList = document.getElementById("convList");
@@ -134,7 +126,7 @@
     var convDeleteCancelBtn = document.getElementById("convDeleteCancelBtn");
     var convDeleteConfirmBtn = document.getElementById("convDeleteConfirmBtn");
 
-    // Memory DOM (Step 11)
+    // Memory DOM
     var memoriesRefreshBtn = document.getElementById("memoriesRefreshBtn");
     var memoriesAddBtn = document.getElementById("memoriesAddBtn");
     var metricTotalMemories = document.getElementById("metricTotalMemories");
@@ -197,7 +189,7 @@
     var docDeleteCancelBtn = document.getElementById("docDeleteCancelBtn");
     var docDeleteConfirmBtn = document.getElementById("docDeleteConfirmBtn");
 
-    // Authentication DOM (V2.6)
+    // Authentication DOM
     var authModal = document.getElementById("authModal");
     var authCloseBtn = document.getElementById("authCloseBtn");
     var authSubtitle = document.getElementById("authSubtitle");
@@ -290,7 +282,7 @@
     }
 
     // ────────────────────────────────────────
-    //  Authentication & Token Management (V2.6)
+    //  Authentication & Token Management
     // ────────────────────────────────────────
 
     function getAccessToken() {
@@ -331,10 +323,9 @@
         localStorage.removeItem(RORAK_TOKEN_KEY);
         localStorage.removeItem(RORAK_USER_KEY);
         localStorage.removeItem("rorak_user_id");
-        localStorage.removeItem("rorak_workspace_id");
+        localStorage.removeItem("rorak_workspace_id"); // legacy key cleanup
         currentUser = null;
         currentUserId = null;
-        currentWorkspaceId = null;
         activeConversationId = null;
         messages = [];
         docLibrary.documents = [];
@@ -399,7 +390,7 @@
     }
 
     // ────────────────────────────────────────
-    //  Auth Modal Controller (V2.6)
+    //  Auth Modal Controller
     // ────────────────────────────────────────
 
     function showAuthModal(tab, subtitleText) {
@@ -728,10 +719,6 @@
             });
     }
 
-    function ensureWorkspace() {
-        return Promise.resolve(null);
-    }
-
 
     // ────────────────────────────────────────
     //  Event Bindings
@@ -785,7 +772,7 @@
             });
         }
 
-        // Conversations events (Step 10)
+        // Conversations events
         if (btnNewChat) {
             btnNewChat.addEventListener("click", function () {
                 if (!getAccessToken()) {
@@ -820,7 +807,7 @@
         if (convDeleteCancelBtn) convDeleteCancelBtn.addEventListener("click", closeConvDeleteModal);
         if (convDeleteConfirmBtn) convDeleteConfirmBtn.addEventListener("click", confirmConvDelete);
 
-        // Memory events (Step 11)
+        // Memory events
         if (navMemoryBtn) {
             navMemoryBtn.addEventListener("click", function (e) {
                 e.preventDefault();
@@ -938,7 +925,7 @@
         if (docDeleteCancelBtn) docDeleteCancelBtn.addEventListener("click", closeDeleteModal);
         if (docDeleteConfirmBtn) docDeleteConfirmBtn.addEventListener("click", confirmDelete);
 
-        // Authentication Events (V2.6)
+        // Authentication Events
         if (authCloseBtn) {
             authCloseBtn.addEventListener("click", function () {
                 hideAuthModal();
@@ -1105,7 +1092,7 @@
 
 
     // ────────────────────────────────────────
-    //  "Files in chat" Drawer & Isolation (V2.7)
+    //  "Files in chat" Drawer & Isolation
     // ────────────────────────────────────────
 
     function toggleChatFilesDrawer(force) {
@@ -1379,7 +1366,7 @@
 
 
     // ────────────────────────────────────────
-    //  Document Upload with Progress (V2.2)
+    //  Document Upload with Progress
     // ────────────────────────────────────────
 
     function handleFileSelect(e) {
@@ -1537,7 +1524,7 @@
 
 
     // ────────────────────────────────────────
-    //  Document Details Modal (V2.2 Metadata)
+    //  Document Details Modal
     // ────────────────────────────────────────
 
     function openDetailsModal(documentId) {
@@ -1580,7 +1567,7 @@
 
 
     // ────────────────────────────────────────
-    //  Document Rename Modal (V2.2 PATCH)
+    //  Document Rename Modal
     // ────────────────────────────────────────
 
     function openRenameModal(doc) {
@@ -1672,7 +1659,7 @@
 
 
     // ────────────────────────────────────────
-    //  Document Delete Modal (V2.2 DELETE)
+    //  Document Delete Modal
     // ────────────────────────────────────────
 
     function openDeleteModal(doc) {
@@ -1734,7 +1721,7 @@
 
 
     // ────────────────────────────────────────
-    //  Step 10 — Conversation Experience
+    //  Conversation Experience
     // ────────────────────────────────────────
 
     function loadConversations() {
@@ -2062,7 +2049,7 @@
 
 
     // ────────────────────────────────────────
-    //  Step 11 — Memory UI Experience
+    //  Memory UI Experience
     // ────────────────────────────────────────
 
     function loadMemoriesCount() {

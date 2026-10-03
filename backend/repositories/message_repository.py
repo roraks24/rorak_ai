@@ -17,7 +17,6 @@ class MessageRepository:
         self,
         message_id: UUID,
         conversation_id: UUID | None = None,
-        workspace_id: UUID | None = None,
         user_id: UUID | None = None,
     ) -> Message | None:
         """
@@ -37,7 +36,6 @@ class MessageRepository:
     def get_by_conversation(
         self,
         conversation_id: UUID,
-        workspace_id: UUID | None = None,
         user_id: UUID | None = None,
     ) -> list[Message]:
         """
@@ -60,7 +58,6 @@ class MessageRepository:
     def get_by_conversation_paginated(
         self,
         conversation_id: UUID,
-        workspace_id: UUID | None = None,
         user_id: UUID | None = None,
         skip: int = 0,
         limit: int = 50,
@@ -89,7 +86,6 @@ class MessageRepository:
     def get_recent_for_context(
         self,
         conversation_id: UUID,
-        workspace_id: UUID | None = None,
         user_id: UUID | None = None,
         limit: int = 20,
     ) -> list[Message]:
@@ -118,7 +114,6 @@ class MessageRepository:
     def count_by_conversation(
         self,
         conversation_id: UUID,
-        workspace_id: UUID | None = None,
         user_id: UUID | None = None,
     ) -> int:
         """Count messages in a conversation."""
@@ -146,7 +141,6 @@ class MessageRepository:
         self,
         message: Message | UUID,
         conversation_id: UUID | None = None,
-        workspace_id: UUID | None = None,
         user_id: UUID | None = None,
     ) -> bool:
         """

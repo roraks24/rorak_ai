@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 
 class DocumentService:
     """
-    Coordinates document persistence, retrieval, workspace isolation,
+    Coordinates document persistence, retrieval, per-user isolation,
     durable document storage, and document ingestion.
     """
 
@@ -132,35 +132,6 @@ class DocumentService:
 
         return documents, total
 
-    def get_workspace_documents(
-        self,
-        workspace_id: UUID | None = None,
-        conversation_id: UUID | None = None,
-        page: int = 1,
-        page_size: int = 20,
-        user_id: UUID | None = None,
-    ) -> tuple[list[Document], int]:
-        """Backward-compatible documents retrieval."""
-        target_user = user_id or workspace_id
-        if target_user:
-            return self.get_user_documents(
-                user_id=target_user,
-                conversation_id=conversation_id,
-                page=page,
-                page_size=page_size,
-            )
-
-        skip = (page - 1) * page_size
-        docs = self.repository.get_by_workspace_paginated(
-            skip=skip,
-            limit=page_size,
-            conversation_id=conversation_id,
-        )
-        total = self.repository.count_by_workspace(
-            conversation_id=conversation_id,
-        )
-        return docs, total
-
     # ============================================================
     # RENAME DOCUMENT
     # ============================================================
@@ -235,7 +206,6 @@ class DocumentService:
         checksum_sha256: str | None = None,
         failure_reason: str | None = None,
         conversation_id: UUID | None = None,
-        workspace_id: UUID | None = None,
     ) -> Document:
         """
         Create a document database record.
@@ -271,11 +241,9 @@ class DocumentService:
                 f"{Path(safe_filename).name}"
             )
 
-        effective_user_id = user_id or workspace_id
-
         document = Document(
             id=document_id,
-            user_id=effective_user_id,
+            user_id=user_id,
             conversation_id=conversation_id,
             filename=safe_filename,
             display_name=display_name.strip(),
@@ -403,7 +371,6 @@ class DocumentService:
         file_size: int = 0,
         user_id: UUID | None = None,
         conversation_id: UUID | None = None,
-        workspace_id: UUID | None = None,
     ) -> tuple[Document, IngestionJob, int]:
         """
         Full V2.2 document ingestion workflow.
@@ -492,11 +459,9 @@ class DocumentService:
         guessed_mime, _ = mimetypes.guess_type(safe_original_filename)
         mime_type = guessed_mime or "application/octet-stream"
 
-        effective_user_id = user_id or workspace_id
-
         document = Document(
             id=document_id,
-            user_id=effective_user_id,
+            user_id=user_id,
             conversation_id=conversation_id,
             filename=safe_name,
             display_name=safe_original_filename,

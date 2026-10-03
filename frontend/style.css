@@ -990,7 +990,7 @@ html, body {
 }
 
 /* ========================================
-   V2.2 Document Library & Management Styles
+   Document Library & Management Styles
    ======================================== */
 
 /* ── Comfortable Scrollbar ── */
@@ -1712,7 +1712,7 @@ html, body {
 }
 
 /* ============================================================
-   Step 10 — Sidebar Conversations Experience
+   Sidebar Conversations Experience
    ============================================================ */
 
 .sidebar-section-divider {
@@ -1918,7 +1918,7 @@ html, body {
 }
 
 /* ============================================================
-   Step 11 — Memory UI & Cards
+   Memory UI & Cards
    ============================================================ */
 
 .memory-section {
@@ -1955,18 +1955,6 @@ html, body {
     align-items: center;
     gap: 6px;
     flex-wrap: wrap;
-}
-
-.badge-scope-workspace {
-    background: rgba(16, 185, 129, 0.12);
-    color: #34d399;
-    border: 1px solid rgba(16, 185, 129, 0.25);
-    font-size: 11px;
-    font-weight: 600;
-    padding: 3px 8px;
-    border-radius: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
 }
 
 .badge-scope-user {
@@ -2074,7 +2062,7 @@ html, body {
 
 
 /* ========================================
-   Authentication UI & User Profile (V2.6)
+   Authentication UI & User Profile
    ======================================== */
 
 .auth-dialog {

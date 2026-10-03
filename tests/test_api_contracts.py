@@ -14,7 +14,7 @@ def test_openapi_generation():
     """Verify OpenAPI document is cleanly generated with expected metadata."""
     schema = app.openapi()
     assert schema is not None
-    assert schema["info"]["title"] == "Rorak"
+    assert schema["info"]["title"] == "Rorak AI"
     assert schema["info"]["version"] == app.version
 
 
@@ -139,7 +139,6 @@ def test_step_9_api_contracts():
     # 8. Chat contract: carry conversation_id when continuing an existing thread
     chat_request_props = components["ChatRequest"]["properties"]
     assert "conversation_id" in chat_request_props
-    assert "workspace_id" in chat_request_props
     assert "user_id" in chat_request_props
 
     chat_response_props = components["ChatResponse"]["properties"]

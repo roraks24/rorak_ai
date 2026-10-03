@@ -22,11 +22,6 @@ class ConversationNotFound(NotFound):
         super().__init__(message, code="CONVERSATION_NOT_FOUND")
 
 
-class WorkspaceNotFound(NotFound):
-    def __init__(self, message: str = "Workspace not found"):
-        super().__init__(message, code="WORKSPACE_NOT_FOUND")
-
-
 class UserNotFound(NotFound):
     def __init__(self, message: str = "User not found"):
         super().__init__(message, code="USER_NOT_FOUND")
@@ -47,11 +42,6 @@ class Conflict(ServiceException):
     """Resource conflict (e.g. duplicate name)."""
     def __init__(self, message: str = "Resource conflict", code: str = "CONFLICT"):
         super().__init__(message, code=code)
-
-
-class WorkspaceAlreadyExists(Conflict):
-    def __init__(self, message: str = "Workspace with this name already exists"):
-        super().__init__(message, code="WORKSPACE_ALREADY_EXISTS")
 
 
 class IngestionError(ServiceException):
