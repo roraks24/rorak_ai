@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "v2-development"]
   pull_request:
   workflow_dispatch:
 
@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12", "3.14"]
+        python-version: ["3.11", "3.12"]
 
     services:
       postgres:
@@ -71,4 +71,5 @@ jobs:
         run: alembic upgrade head
 
       - name: Run test suite
-        run: pytest -q --tb=short
+        run: python -m pytest -q --tb=short
+

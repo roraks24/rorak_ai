@@ -182,8 +182,8 @@ def build_vector_store() -> Optional[FAISS]:
 
             _stats.update(
                 {
-                    "files_found": len(pdf_files),
-                    "file_names": pdf_names,
+                    "files_found": len(doc_files),
+                    "file_names": doc_names,
                     "chunks_indexed": len(documents),
                     "initialized": True,
                     "init_duration_seconds": duration,
@@ -194,7 +194,7 @@ def build_vector_store() -> Optional[FAISS]:
                 "Built vector store with %d chunks "
                 "from %d files in %.2f seconds.",
                 len(documents),
-                len(pdf_files),
+                len(doc_files),
                 duration,
             )
 
@@ -204,8 +204,8 @@ def build_vector_store() -> Optional[FAISS]:
 
             _stats.update(
                 {
-                    "files_found": len(pdf_files),
-                    "file_names": pdf_names,
+                    "files_found": len(doc_files),
+                    "file_names": doc_names,
                     "chunks_indexed": 0,
                     "initialized": True,
                     "init_duration_seconds": (
@@ -216,7 +216,7 @@ def build_vector_store() -> Optional[FAISS]:
 
             logger.warning(
                 "No chunks were successfully extracted "
-                "from discovered PDF files."
+                "from discovered document files."
             )
 
     return vector_store
