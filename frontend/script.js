@@ -18,7 +18,9 @@
     var API_BASE = window.RORAK_API_BASE || (
         window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
             ? (window.location.port === "8000" ? "" : "http://localhost:8000")
-            : (window.location.protocol.indexOf("http") === 0 ? "" : "https://api.rorak.tech")
+            : (window.location.hostname.indexOf("rorak.tech") !== -1 || window.location.hostname.indexOf("web.app") !== -1 || window.location.hostname.indexOf("firebaseapp.com") !== -1
+                ? "https://api.rorak.tech"
+                : "")
     );
 
     // ── Greetings ──
