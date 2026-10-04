@@ -7,12 +7,14 @@
 **A document-grounded AI assistant with persistent conversations, long-term memory, and multi-format RAG.**
 
 [![CI](https://github.com/roraks24/rorak_ai/actions/workflows/ci.yml/badge.svg)](https://github.com/roraks24/rorak_ai/actions/workflows/ci.yml)
-[![Python](https://img.shields.io/badge/python-3.12%20%7C%203.14-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](https://github.com/roraks24/rorak_ai/releases)
+[![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![Status](https://img.shields.io/badge/deployment-live-success)](https://www.rorak.tech)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-[Live demo](https://rorak.tech) · [Architecture](docs/ARCHITECTURE.md) · [Changelog](CHANGELOG.md) · [Report a bug](https://github.com/roraks24/rorak_ai/issues/new?template=bug_report.md)
+[Live App](https://www.rorak.tech) · [Live API Docs](https://api.rorak.tech/docs) · [Architecture](docs/ARCHITECTURE.md) · [Deployment Guide](docs/DEPLOYMENT.md) · [Changelog](CHANGELOG.md)
 
 </div>
 
@@ -20,8 +22,9 @@
 
 Rorak AI lets you upload documents into a chat and ask questions about them. Answers are grounded in the retrieved passages; when a conversation has no documents, it falls back to a general-purpose assistant. Conversations, uploaded files, and learned user preferences are persisted per user in PostgreSQL.
 
-> [!NOTE]
-> The public demo at [rorak.tech](https://rorak.tech) currently runs **v1**. This branch contains **v2** — accounts, persistent conversations, memory, and multi-format ingestion.
+> [!TIP]
+> **Rorak AI v2.0 is live in production!**  
+> Explore the live web application at [www.rorak.tech](https://www.rorak.tech) and the public API documentation at [api.rorak.tech/docs](https://api.rorak.tech/docs). For infrastructure and deployment details, see the [Production Deployment Guide](docs/DEPLOYMENT.md).
 
 ## Features
 
@@ -61,7 +64,7 @@ flowchart LR
     Conv & Docs & Mem --> PG[("PostgreSQL")]
 ```
 
-Routes → services → repositories, with SQLAlchemy models and Alembic migrations. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the request lifecycle, data model, and design decisions.
+Routes → services → repositories, with SQLAlchemy models and Alembic migrations. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the request lifecycle and design decisions, and [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the production infrastructure and cloud deployment guide.
 
 ## Tech stack
 
