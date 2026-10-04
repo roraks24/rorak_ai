@@ -21,7 +21,7 @@
     <meta http-equiv="Expires" content="0">
 
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg viewBox='0 0 32 32' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='32' height='32' rx='6' fill='%23111'/%3E%3Cpath d='M8 5h11c4.5 0 8 3.2 8 7.5 0 3.5-2.2 6.2-5.5 7.2L28 28h-5.5l-6-8H13v8H8V5zm5 4v7.5h5.5c2.5 0 4.5-1.7 4.5-3.8s-2-3.7-4.5-3.7H13z' fill='white'/%3E%3C/svg%3E">
-    <link rel="stylesheet" href="style.css?v=2.7.6">
+    <link rel="stylesheet" href="style.css?v=2.8.0">
     <!-- Markdown Parser and DOM Sanitizer for secure rich text rendering -->
     <script src="https://cdn.jsdelivr.net/npm/marked@12.0.1/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.9/dist/purify.min.js"></script>
@@ -36,13 +36,6 @@
         </div>
 
         <div class="app-body">
-
-            <!-- Mobile menu toggle -->
-            <button class="menu-toggle" id="menuToggle" aria-label="Toggle menu">
-                <span></span>
-                <span></span>
-                <span></span>
-            </button>
 
             <!-- Sidebar panel -->
             <aside class="sidebar" id="sidebar">
@@ -136,10 +129,17 @@
             <!-- Main content area -->
             <main class="main is-empty" id="mainArea">
 
+                <!-- Mobile menu toggle (three lines) -->
+                <button class="menu-toggle" id="menuToggle" aria-label="Toggle menu" title="Toggle menu">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </button>
+
                 <!-- Chat top corner action bar -->
-                <div class="chat-corner-bar" id="chatCornerBar" style="position: absolute; top: 14px; right: 20px; z-index: 45; display: flex; align-items: center; gap: 10px;">
-                    <button class="btn-files-in-chat" id="btnFilesInChat" title="Files in chat" aria-label="Files in chat" style="display: inline-flex; align-items: center; gap: 8px; background: #1a1a1a; border: 1px solid #333; color: #e5e5e5; border-radius: 20px; padding: 7px 14px; font-size: 13px; font-weight: 500; cursor: pointer;">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 16px; height: 16px; min-width: 16px; max-width: 16px; display: inline-block; flex-shrink: 0;">
+                <div class="chat-corner-bar" id="chatCornerBar">
+                    <button class="btn-files-in-chat" id="btnFilesInChat" title="Files in chat" aria-label="Files in chat">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
                             <polyline points="14 2 14 8 20 8"></polyline>
                             <line x1="16" y1="13" x2="8" y2="13"></line>
@@ -603,6 +603,6 @@
         </div>
     </div>
 
-    <script src="script.js?v=2.7.9"></script>
+    <script src="script.js?v=2.8.0"></script>
 </body>
 </html>
